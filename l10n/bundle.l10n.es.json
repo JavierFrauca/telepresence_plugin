@@ -1,0 +1,14 @@
+{
+  "viewsContainers.activitybar.telepresence.title": "Telepresence",
+  "views.telepresenceNamespace.name": "Conexión a Namespace",
+  "views.telepresenceInterceptions.name": "Intercepciones Activas",
+  "views.telepresenceStatus.name": "Estado de Telepresence",
+  "commands.telepresence.refreshNamespace.title": "Actualizar Conexión al Namespace",
+  "commands.telepresence.refreshInterceptions.title": "Actualizar Intercepciones Activas",
+  "commands.telepresence.refreshTelepresenceStatus.title": "Actualizar Estado de Telepresence",
+  "commands.telepresence.openGui.title": "Abrir Interfaz Gráfica de Telepresence",
+  
+  "config.path.readme": "README.es.md",
+  "config.path.license": "LICENSE.es.txt",
+  "commands.telepresence.loginToKubernetes.title": "Iniciar sesión en Kubernetes"
+}

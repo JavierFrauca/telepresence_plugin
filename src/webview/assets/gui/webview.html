@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-l10n="webview.app.title">Telepresence Control Panel</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; img-src https:;">
+    <link rel="stylesheet" href="{{cssUri}}">
+</head>
+<body>
+    <div class="container">
+        <div class="header-container">
+            <div class="app-header">
+                <div class="app-info">
+                    <img src="{{iconUri}}" alt="Telepresence Icon" class="app-icon">
+                    <div class="app-details">
+                        <h1><span data-l10n="webview.app.heading">Telepresence GUI</span> <span class="version-text">v{{version}}</span></h1>
+                        <p data-l10n="webview.app.subtitle">Advanced microservices management in Kubernetes</p>
+                    </div>
+                </div>
+            </div>
+            <div class="system-status-bar">
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.telepresence">Telepresence</div>
+                        <div class="value" id="telepresence-status" data-l10n="webview.system.checking">Checking...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.kubectl">kubectl</div>
+                        <div class="value" id="kubectl-status" data-l10n="webview.system.checking">Checking...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.kubelogin">kubelogin</div>
+                        <div class="value" id="kubelogin-status" data-l10n="webview.system.checking">Checking...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.context">Context</div>
+                        <div class="value clickable" id="context-status" title="webview.context.click" data-l10n="webview.system.checking">Checking...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.authentication">Authentication</div>
+                        <div class="value" id="auth-status" data-l10n="webview.system.checking">Checking...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="label" data-l10n="webview.system.namespace">Namespace</div>
+                        <div class="value" id="namespace-connection-status" data-l10n="connection.status.disconnected">Disconnected</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="connection-panels">
+            <!-- Panel 1: Namespace Connection -->
+            <div class="panel connection-panel">
+                <h2 data-l10n="webview.panel.namespace.title">🔌 Step 1: Namespace Connection</h2>
+                <div class="connection-status" id="namespace-status-panel">
+                    <div class="status-indicator disconnected" id="namespace-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text" data-l10n="connection.status.disconnected">Disconnected</span>
+                    </div>
+                </div>
+                <form id="namespace-form">
+                    <div class="form-group">
+                        <label for="namespace-select" data-l10n="webview.panel.namespace.label">Namespace:</label>
+                        <div class="autocomplete-container">
+                            <input type="text" id="namespace-select" placeholder="" data-l10n-attr="placeholder:webview.panel.namespace.placeholder" required>
+                            <div class="autocomplete-list" id="namespace-list" style="display: none;"></div>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" id="connect-namespace-btn">
+                            <span id="connect-namespace-text" data-l10n="webview.panel.namespace.connect">🔌 Connect</span>
+                            <span id="connect-namespace-loading" class="loading" style="display: none;"></span>
+                        </button>
+                        <button type="button" class="btn btn-danger" id="disconnect-namespace-btn" data-l10n="webview.panel.namespace.disconnect">
+                            🔌 Disconnect
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <!-- Panel 2: Traffic Interception -->
+            <div class="panel interception-panel">
+                <h2 data-l10n="webview.panel.intercept.title">🎯 Step 2: Traffic Interception</h2>
+                <div class="interception-requirements" id="interception-requirements">
+                    <div class="requirement-notice">
+                        <span class="requirement-icon">⚠️</span>
+                        <span class="requirement-text" data-l10n="interception.requirement">Connect to a namespace first to intercept traffic</span>
+                    </div>
+                </div>
+                <form id="interception-form">
+                    <div class="form-group">
+                        <label for="microservice-input" data-l10n="webview.panel.intercept.serviceLabel">Microservice:</label>
+                        <div class="autocomplete-container">
+                            <input type="text" id="microservice-input" placeholder="" data-l10n-attr="placeholder:webview.panel.intercept.servicePlaceholder" disabled>
+                            <div class="autocomplete-list" id="microservice-list" style="display: none;"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="local-port-input" data-l10n="webview.panel.intercept.portLabel">Local Port:</label>
+                        <input type="number" id="local-port-input" min="1" max="65535" value="5001" disabled>
+                    </div>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" id="intercept-traffic-btn" disabled>
+                            <span id="intercept-traffic-text" data-l10n="webview.panel.intercept.button">🎯 Intercept</span>
+                            <span id="intercept-traffic-loading" class="loading" style="display: none;"></span>
+                        </button>
+                        <button type="button" class="btn btn-warning" id="disconnect-all-interceptions-btn" disabled data-l10n="webview.panel.intercept.disconnectAll">
+                            ⛔ Disconnect All
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="two-column">
+            <div class="panel">
+                <h2 data-l10n="webview.panel.status.title">📊 Telepresence Status</h2>
+                <div class="status-header">
+                    <button class="btn btn-secondary" id="refresh-telepresence-status-btn" data-l10n="webview.panel.status.refresh">
+                        🔄 Refresh Status
+                    </button>
+                    <div>
+                        <span class="daemon-status" id="daemon-status" data-l10n="webview.panel.status.unknown">Unknown</span>
+                        <span class="status-timestamp" id="status-timestamp" data-l10n="webview.panel.status.neverUpdated">Never updated</span>
+                    </div>
+                </div>
+                <div class="status-display" id="telepresence-status-container">
+                    <div id="interceptions-table-container">
+                        <div class="loading-state">
+                            <div style="text-align: center; padding: 30px;">
+                                <div class="loading"></div>
+                                <p style="margin-top: 15px; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.status.loading">
+                                    Loading telepresence status...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel sessions-list">
+                <h2 data-l10n="webview.panel.activeInterceptions.title">🎯 Active Interceptions</h2>
+                <div id="sessions-container">
+                    <p style="text-align: center; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.activeInterceptions.none">
+                        No active interceptions
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="info-panel">
+            <div class="info-footer">
+                <p><span data-l10n="webview.footer.developed">Developed by</span> <strong>Javier Frauca</strong> | v{{version}} | <span class="license" data-l10n="webview.footer.license">MIT License</span> | 
+                <a href="{{repoUrl}}" target="_blank" data-l10n="webview.footer.moreInfo">More information</a>
+                </p>
+            </div>
+        </div>
+        <div id="message-container"></div>
+    </div>
+    <script src="{{localizationJsUri}}"></script>
+    <script src="{{jsUri}}"></script>
+    <script>
+        // Implementación de traducción directa para solucionar el problema
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🌐 DOM fully loaded, initializing translations');
+            
+            // Función para aplicar traducciones directamente
+            function directTranslate() {
+                // Usar idioma del documento o 'es' si VS Code está en español
+                const lang = document.documentElement.lang || 'es';
+                console.log('🌐 Detectado idioma para traducción directa:', lang);
+                
+                // Diccionario básico para traducción inmediata - versión inglés
+                const basicTranslations_en = {
+                    'webview.app.title': 'Telepresence Control Panel',
+                    'webview.app.heading': 'Telepresence GUI',
+                    'webview.app.subtitle': 'Advanced microservices management in Kubernetes',
+                    'webview.system.telepresence': 'Telepresence',
+                    'webview.system.kubectl': 'kubectl',
+                    'webview.system.kubelogin': 'kubelogin',
+                    'webview.system.context': 'Context',
+                    'webview.system.authentication': 'Authentication',
+                    'webview.system.namespace': 'Namespace',
+                    'webview.system.checking': 'Checking...',
+                    'webview.context.click': 'Click to change context',
+                    'webview.panel.namespace.title': '🔌 Step 1: Namespace Connection',
+                    'connection.status.disconnected': 'Disconnected',
+                    'webview.panel.namespace.label': 'Namespace:',
+                    'webview.panel.namespace.placeholder': 'Select a namespace',
+                    'webview.panel.namespace.connect': '🔌 Connect',
+                    'webview.panel.namespace.disconnect': '🔌 Disconnect',
+                    'webview.panel.intercept.title': '🎯 Step 2: Traffic Interception',
+                    'interception.requirement': 'Connect to a namespace first to intercept traffic',
+                    'webview.panel.intercept.serviceLabel': 'Microservice:',
+                    'webview.panel.intercept.servicePlaceholder': 'Connect to a namespace first',
+                    'webview.panel.intercept.portLabel': 'Local Port:',
+                    'webview.panel.intercept.button': '🎯 Intercept',
+                    'webview.panel.intercept.disconnectAll': '⛔ Disconnect All',
+                    'webview.panel.status.title': '📊 Telepresence Status',
+                    'webview.panel.status.refresh': '🔄 Refresh Status',
+                    'webview.panel.status.unknown': 'Unknown',
+                    'webview.panel.status.neverUpdated': 'Never updated',
+                    'webview.panel.status.loading': 'Loading telepresence status...',
+                    'webview.panel.activeInterceptions.title': '🎯 Active Interceptions',
+                    'webview.panel.activeInterceptions.none': 'No active interceptions',
+                    'webview.footer.developed': 'Developed by',
+                    'webview.footer.license': 'MIT License',
+                    'webview.footer.moreInfo': 'More information',
+                    'scripts.ui.noInterceptions': 'No interceptions available'
+                };
+                
+                // Diccionario básico para traducción inmediata - versión español
+                const basicTranslations_es = {
+                    'webview.app.title': 'Panel de Control de Telepresence',
+                    'webview.app.heading': 'Telepresence GUI',
+                    'webview.app.subtitle': 'Gestión avanzada de microservicios en Kubernetes',
+                    'webview.system.telepresence': 'Telepresence',
+                    'webview.system.kubectl': 'kubectl',
+                    'webview.system.kubelogin': 'kubelogin',
+                    'webview.system.context': 'Contexto',
+                    'webview.system.authentication': 'Autenticación',
+                    'webview.system.namespace': 'Namespace',
+                    'webview.system.checking': 'Verificando...',
+                    'webview.context.click': 'Haz clic para cambiar el contexto',
+                    'webview.panel.namespace.title': '🔌 Paso 1: Conexión al Namespace',
+                    'connection.status.disconnected': 'Desconectado',
+                    'webview.panel.namespace.label': 'Namespace:',
+                    'webview.panel.namespace.placeholder': 'Selecciona un namespace',
+                    'webview.panel.namespace.connect': '🔌 Conectar',
+                    'webview.panel.namespace.disconnect': '🔌 Desconectar',
+                    'webview.panel.intercept.title': '🎯 Paso 2: Intercepción de Tráfico',
+                    'interception.requirement': 'Conéctate primero a un namespace para interceptar tráfico',
+                    'webview.panel.intercept.serviceLabel': 'Microservicio:',
+                    'webview.panel.intercept.servicePlaceholder': 'Conéctate primero a un namespace',
+                    'webview.panel.intercept.portLabel': 'Puerto Local:',
+                    'webview.panel.intercept.button': '🎯 Interceptar',
+                    'webview.panel.intercept.disconnectAll': '⛔ Desconectar Todo',
+                    'webview.panel.status.title': '📊 Estado de Telepresence',
+                    'webview.panel.status.refresh': '🔄 Actualizar Estado',
+                    'webview.panel.status.unknown': 'Desconocido',
+                    'webview.panel.status.neverUpdated': 'Nunca actualizado',
+                    'webview.panel.status.loading': 'Cargando estado de telepresence...',
+                    'webview.panel.activeInterceptions.title': '🎯 Intercepciones Activas',
+                    'webview.panel.activeInterceptions.none': 'No hay intercepciones activas',
+                    'webview.footer.developed': 'Desarrollado por',
+                    'webview.footer.license': 'Licencia MIT',
+                    'webview.footer.moreInfo': 'Más información',
+                    'scripts.ui.noInterceptions': 'No hay intercepciones disponibles'
+                };
+                
+                // Seleccionar el diccionario según el idioma
+                const basicTranslations = lang.startsWith('es') ? basicTranslations_es : basicTranslations_en;
+                
+                // Aplicar traducciones inmediatamente a los elementos data-l10n
+                document.querySelectorAll('[data-l10n]').forEach(element => {
+                    const key = element.getAttribute('data-l10n');
+                    if (key && basicTranslations[key]) {
+                        element.textContent = basicTranslations[key];
+                        console.log('🌐 Direct translation applied:', key, '->', basicTranslations[key]);
+                    }
+                });
+                
+                // Aplicar traducciones a atributos
+                document.querySelectorAll('[data-l10n-attr]').forEach(element => {
+                    const attrSpec = element.getAttribute('data-l10n-attr');
+                    if (attrSpec) {
+                        const [attr, key] = attrSpec.split(':');
+                        if (attr && key && basicTranslations[key]) {
+                            element.setAttribute(attr, basicTranslations[key]);
+                            console.log('🌐 Direct attr translation:', key, '->', basicTranslations[key]);
+                        }
+                    }
+                });
+                
+                // Aplicar traducciones a titles
+                document.querySelectorAll('[title]').forEach(element => {
+                    const titleKey = element.getAttribute('title');
+                    if (titleKey && titleKey.startsWith('webview.') && basicTranslations[titleKey]) {
+                        element.setAttribute('title', basicTranslations[titleKey]);
+                        console.log('🌐 Direct title translation:', titleKey, '->', basicTranslations[titleKey]);
+                    }
+                });
+            }
+            
+            // Aplicar traducciones directas inmediatamente
+            directTranslate();
+            
+            // También intentar usar el sistema normal
+            console.log('🌐 Trying to apply translations via main system');
+            
+            // Keep trying to apply translations until success
+            function attemptApplyTranslations(attempts = 0) {
+                if (attempts > 10) {
+                    console.log('🌐 Giving up after multiple attempts to apply translations');
+                    return;
+                }
+                
+                if (window.l10n && typeof window.applyTranslations === 'function') {
+                    console.log('🌐 Applying translations from HTML script', attempts);
+                    window.applyTranslations();
+                    
+                    // Double-check if translations were actually applied by looking at a sample element
+                    const sampleElement = document.querySelector('[data-l10n="webview.app.heading"]');
+                    if (sampleElement && sampleElement.textContent === 'Telepresence GUI') {
+                        console.log('🌐 Translations confirmed working!');
+                    } else {
+                        console.log('🌐 Translations may not be fully applied, retrying in 300ms');
+                        setTimeout(() => attemptApplyTranslations(attempts + 1), 300);
+                    }
+                } else {
+                    console.log('🌐 Localization system not ready yet, waiting... (attempt ' + attempts + ')');
+                    setTimeout(() => attemptApplyTranslations(attempts + 1), 300);
+                }
+            }
+            
+            // Start the retry process
+            attemptApplyTranslations();
+        });
+    </script>
+</body>
+</html>

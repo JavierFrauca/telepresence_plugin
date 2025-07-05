@@ -1,0 +1,261 @@
+/**
+ * Estilos para el webview simple de login a Kubernetes
+ * Adaptado para ser consistente con el estilo de la GUI principal
+ */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--vscode-editor-foreground);
+    background-color: var(--vscode-editor-background);
+    padding: 20px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+h1 {
+    font-size: 18px;
+    margin-bottom: 15px;
+    color: var(--vscode-textLink-foreground);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    padding-bottom: 8px;
+    font-weight: 700;
+}
+
+h2 {
+    font-size: 16px;
+    margin-top: 20px;
+    margin-bottom: 12px;
+    color: var(--vscode-editor-foreground);
+    font-weight: 600;
+}
+
+h3 {
+    font-size: 14px;
+    margin-top: 15px;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: var(--vscode-panel-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.provider-selector {
+    margin-bottom: 20px;
+}
+
+.provider-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.provider-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.provider-btn:hover {
+    background-color: var(--vscode-button-hoverBackground);
+    transform: translateY(-1px);
+}
+
+.provider-btn.selected {
+    background-color: var(--vscode-button-hoverBackground);
+    border: 1px solid var(--vscode-focusBorder);
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+/* Badges for provider buttons */
+.provider-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    margin-left: 5px;
+    font-weight: 500;
+}
+
+.badge-installed {
+    background-color: var(--vscode-testing-iconPassed);
+    color: white;
+}
+
+.badge-missing {
+    background-color: var(--vscode-testing-iconFailed);
+    color: white;
+}
+
+/* Animation for tool status checks */
+@keyframes checkingAnimation {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
+}
+
+.checking-status {
+    animation: checkingAnimation 1.5s infinite;
+}
+
+.hidden {
+    display: none;
+}
+
+.loading {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    padding: 10px 0;
+}
+
+.action-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    margin: 10px 0;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.action-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+    transform: translateY(-1px);
+}
+
+.contexts-list, .clusters-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.context-item, .cluster-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    transition: background-color 0.2s ease;
+    border-radius: 3px;
+}
+
+.context-item:hover, .cluster-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.context-item:last-child, .cluster-item:last-child {
+    border-bottom: none;
+}
+
+.context-item.current {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.context-info, .cluster-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.context-name, .cluster-name {
+    font-weight: 500;
+}
+
+.context-badge {
+    background-color: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+.action-btn {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    border-radius: 4px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+    transform: translateY(-1px);
+}
+
+.status-container {
+    margin-top: 20px;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+#status-message {
+    padding: 10px;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 13px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+#status-message.info {
+    background-color: var(--vscode-inputValidation-infoBackground);
+    border: 1px solid var(--vscode-inputValidation-infoBorder);
+    color: var(--vscode-inputValidation-infoForeground);
+}
+
+#status-message.error {
+    background-color: var(--vscode-inputValidation-errorBackground);
+    border: 1px solid var(--vscode-inputValidation-errorBorder);
+    color: var(--vscode-inputValidation-errorForeground);
+}
+
+#status-message.warning {
+    background-color: var(--vscode-inputValidation-warningBackground);
+    border: 1px solid var(--vscode-inputValidation-warningBorder);
+    color: var(--vscode-inputValidation-warningForeground);
+}
+
+.no-items {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    padding: 10px;
+    text-align: center;
+    background-color: var(--vscode-list-inactiveSelectionBackground);
+    border-radius: 4px;
+    margin-top: 5px;
+}

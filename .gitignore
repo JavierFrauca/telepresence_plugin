@@ -1,0 +1,50 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+
+# VS Code settings
+.vscode/
+
+# Logs
+*.log
+
+# Compiled files
+*.js
+*.js.map
+*.tsbuildinfo
+
+# VSIX packages
+*.vsix
+
+# Environment and secrets
+.env
+.env.*
+secrets.*
+*token*
+*credential*
+*secret*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Temporary folders
+.tmp/
+tmp/
+.cache/
+.temp/
+
+# Misc
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npmrc
+.npmignore
+npm-shrinkwrap.json
+
+# Ignore coverage reports
+coverage/
