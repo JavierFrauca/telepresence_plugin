@@ -305,6 +305,32 @@ try {
             return [];
         }
     }
+
+    /**
+     * Get detailed deployments information with replicas
+     */
+    async getDeploymentsWithReplicas(namespace: string): Promise<Array<{name: string, replicas: string}>> {
+        try {
+            const { stdout } = await execAsync(`kubectl get deployments -n ${namespace} --no-headers`);
+            const deployments: Array<{name: string, replicas: string}> = [];
+            
+            const lines = stdout.trim().split('\n').filter(line => line.trim());
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 2) {
+                    const name = parts[0];
+                    const ready = parts[1]; // formato: "2/2"
+                    deployments.push({ name, replicas: ready });
+                }
+            }
+            
+            return deployments;
+        } catch (error) {
+            this.outputChannel.appendLine(`❌ Error getting deployments with replicas: ${error}`);
+            return [];
+        }
+    }
+
     /**
      * List pods in a namespace
      */

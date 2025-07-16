@@ -30,6 +30,7 @@ export interface TelepresenceInterception {
     clusterIP?: string;
     serviceIP?: string;
     fullDeploymentName?: string; // For operations with telepresence
+    replicas?: string; // Información de réplicas del deployment (ej: "2/2")
 }
 
 // NEW: Interface for namespace connection state
@@ -912,7 +913,7 @@ export class TelepresenceManager {
             const listOutput = await this.executeCommand(command);
             this.outputChannel.appendLine(`📊 List output received, parsing...`);
             
-            const interceptions = this.parseTelepresenceList(listOutput);
+            const interceptions = await this.parseTelepresenceList(listOutput, namespace);
             this.outputChannel.appendLine(`✅ Parsed ${interceptions.length} interceptions`);
             
             return interceptions;
@@ -925,9 +926,16 @@ export class TelepresenceManager {
     /**
      * Parse the telepresence list output into structured data
      */
-    private parseTelepresenceList(output: string): TelepresenceInterception[] {
+    private async parseTelepresenceList(output: string, namespace: string): Promise<TelepresenceInterception[]> {
         const interceptions: TelepresenceInterception[] = [];
         const lines = output.split('\n');
+        
+        // Obtener información de réplicas de todos los deployments en el namespace
+        const deploymentsWithReplicas = await this.kubernetesManager.getDeploymentsWithReplicas(namespace);
+        const replicasMap = new Map<string, string>();
+        deploymentsWithReplicas.forEach(dep => {
+            replicasMap.set(dep.name, dep.replicas);
+        });
         
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -940,9 +948,10 @@ export class TelepresenceManager {
                 
                 const interception: TelepresenceInterception = {
                     deployment: deploymentName,
-                    namespace: 'default',
+                    namespace: namespace,
                     status: statusPart.includes('replaced') ? 'intercepted' : 'available',
-                    fullDeploymentName: deploymentName
+                    fullDeploymentName: deploymentName,
+                    replicas: replicasMap.get(deploymentName) || '-'
                 };
                 
                 // Si está interceptado, leer las siguientes líneas
@@ -1016,7 +1025,7 @@ export class TelepresenceManager {
                 
                 const listOutput = await this.executeCommand(command);
                 rawOutput = listOutput;
-                interceptions = this.parseTelepresenceList(listOutput);
+                interceptions = await this.parseTelepresenceList(listOutput, namespace);
                 this.outputChannel.appendLine(`✅ Interceptions retrieved: ${interceptions.length} found`);
             } catch (listError) {
                 const errorStr = listError instanceof Error ? listError.message : String(listError);

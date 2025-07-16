@@ -141,6 +141,29 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "telepresence.deploymentActions",
+        "title": "Acciones de Deployment",
+        "category": "Telepresence"
+      },
+      {
+        "command": "telepresence.scaleDeployment",
+        "title": "Escalar Deployment",
+        "category": "Telepresence",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "telepresence.restartDeployment",
+        "title": "Reiniciar Deployment",
+        "category": "Telepresence",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "telepresence.deletePod",
+        "title": "Eliminar Pod",
+        "category": "Telepresence",
+        "icon": "$(trash)"
+      },
+      {
         "command": "telepresence.loginToKubernetes",
         "title": "Login to Kubernetes",
         "category": "Telepresence",
@@ -188,6 +211,21 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "telepresence.scaleDeployment",
+          "when": "view == telepresenceStatus && viewItem == deployment-item",
+          "group": "inline"
+        },
+        {
+          "command": "telepresence.restartDeployment",
+          "when": "view == telepresenceStatus && viewItem == deployment-item",
+          "group": "inline"
+        },
+        {
+          "command": "telepresence.deletePod",
+          "when": "view == telepresenceStatus && viewItem == pod-item",
+          "group": "inline"
+        },
         {
           "command": "telepresence.disconnectFromTree",
           "when": "view == telepresenceView && viewItem == session",

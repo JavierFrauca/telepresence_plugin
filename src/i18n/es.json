@@ -135,5 +135,6 @@
   "common.install": "Instalar",
   "common.cancel": "Cancelar",
   "common.restartNow": "Reiniciar ahora",
-  "common.later": "Más tarde"
+  "common.later": "Más tarde",
+  "webview.table.replicas": "Réplicas"
 }

@@ -174,5 +174,6 @@
   "message.success.disconnected": "Successfully disconnected from namespace",
   "message.error.disconnect": "Error disconnecting from namespace: {0}",
   "message.success.intercepted": "Traffic interception successfully established",
-  "message.error.intercept": "Error intercepting traffic: {0}"
+  "message.error.intercept": "Error intercepting traffic: {0}",
+  "webview.table.replicas": "Replicas"
 }

@@ -11,6 +11,7 @@ export interface TelepresenceInterception {
     clusterIP?: string;
     serviceIP?: string;
     fullDeploymentName?: string; // Para operaciones con telepresence
+    replicas?: string; // Información de réplicas del deployment (ej: "2/2")
 }
 
 export interface TelepresenceSession {

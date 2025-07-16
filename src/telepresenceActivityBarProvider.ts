@@ -9,6 +9,9 @@ import { KubernetesManager } from './kubernetesManager';
  * 3. Telepresence Status
  */
 
+// Canal de salida para Telepresence
+const telepresenceOutputChannel = vscode.window.createOutputChannel('Telepresence');
+
 // ===========================================
 // NAMESPACE CONNECTION PROVIDER
 // ===========================================
@@ -40,7 +43,7 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
             
             if (connectedNamespace) {
                 items.push(new NamespaceTreeItem(
-                    `✅ Connected: ${connectedNamespace}`,
+                    `Connected: ${connectedNamespace}`,
                     vscode.TreeItemCollapsibleState.Collapsed,
                     'connected-namespace',
                     'debug-start',
@@ -48,7 +51,7 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
                 ));
             } else {
                 items.push(new NamespaceTreeItem(
-                    '🔌 Connect to Namespace',
+                    'Connect to Namespace',
                     vscode.TreeItemCollapsibleState.None,
                     'connect-action',
                     'plug'
@@ -107,7 +110,6 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
             return items;
         }
 
-        // ...existing code...
         return [];
     }
 }
@@ -382,70 +384,152 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
                 return [];
             }
 
-            // Usa el namespace conectado de TelepresenceManager para cargar los pods
-            let podInfoByNamespace: Record<string, Record<string, Array<{ name: string; ready: string; status: string; restarts: string; age: string }>>> = {};
+            const targetStatus = element.contextValue === 'intercepted-list' ? 'intercepted' : 'available';
+            const filtered = this.lastStatus.interceptions.filter((i: any) => i.status === targetStatus);
             const connectedNamespace = this.telepresenceManager.getConnectedNamespace();
-            if (connectedNamespace) {
+            
+            // Carga única de deployments y pods para todo el namespace
+            let deploymentsList: Array<{ name: string; namespace: string; replicas: string; available: string; age: string }> = [];
+            let podsList: Array<{ name: string; ready: string; status: string; restarts: string; age: string; deployment: string }> = [];
+            
+            if (connectedNamespace && targetStatus === 'available') {
                 try {
                     const kubernetesManager = new KubernetesManager();
-                    const stdout = await kubernetesManager.executeCommand(`kubectl get pods -n ${connectedNamespace}`);
-                    const lines = stdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
-                    let podInfoByDeployment: Record<string, Array<{ name: string; ready: string; status: string; restarts: string; age: string }>> = {};
-                    for (const line of lines) {
+                    
+                    // Obtener deployments
+                    const deployStdout = await kubernetesManager.executeCommand(`kubectl get deployments -n ${connectedNamespace}`);
+                    const deployLines = deployStdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
+                    for (const line of deployLines) {
+                        const cols = line.trim().split(/\s+/);
+                        if (cols.length >= 5) {
+                            const [name, ready, upToDate, available, age] = cols;
+                            deploymentsList.push({ 
+                                name, 
+                                namespace: connectedNamespace, 
+                                replicas: ready, 
+                                available, 
+                                age 
+                            });
+                        }
+                    }
+                    
+                    // Obtener pods
+                    const podsStdout = await kubernetesManager.executeCommand(`kubectl get pods -n ${connectedNamespace}`);
+                    const podLines = podsStdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
+                    for (const line of podLines) {
                         const cols = line.trim().split(/\s+/);
                         if (cols.length >= 5) {
                             const [name, ready, status, restarts, age] = cols;
-                            // Extraer deployment del nombre del pod
-                            const match = name.match(/^([a-zA-Z0-9-]+-deploy)/);
-                            const deployment = match ? match[1] : undefined;
-                            if (deployment) {
-                                if (!podInfoByDeployment[deployment]) podInfoByDeployment[deployment] = [];
-                                podInfoByDeployment[deployment].push({ name, ready, status, restarts, age });
+                            // Extraer deployment del nombre del pod - mejorado para capturar más patrones
+                            let deployment = 'unknown';
+                            
+                            // Patrón estándar: deployment-hash-podid
+                            const standardMatch = name.match(/^([a-zA-Z0-9-]+)-[a-f0-9]+-[a-z0-9]+$/);
+                            if (standardMatch) {
+                                deployment = standardMatch[1];
+                            } else {
+                                // Patrón con "deploy" en el nombre
+                                const deployMatch = name.match(/^([a-zA-Z0-9-]+-deploy)/);
+                                if (deployMatch) {
+                                    deployment = deployMatch[1];
+                                } else {
+                                    // Patrón general: tomar todo antes del último guión seguido de caracteres alfanuméricos
+                                    const generalMatch = name.match(/^(.+)-[a-z0-9]+$/);
+                                    if (generalMatch) {
+                                        deployment = generalMatch[1];
+                                    }
+                                }
                             }
+                            
+                            podsList.push({ name, ready, status, restarts, age, deployment });
                         }
                     }
-                    podInfoByNamespace[String(connectedNamespace)] = podInfoByDeployment;
                 } catch (err) {
-                    // Si falla, no hay pods en ese namespace
+                    console.error('Error loading deployments/pods:', err);
                 }
             }
 
-            const targetStatus = element.contextValue === 'intercepted-list' ? 'intercepted' : 'available';
-            const filtered = this.lastStatus.interceptions.filter((i: any) => i.status === targetStatus);
             return filtered.map((interception: any) => {
-                const nsKey = connectedNamespace ? String(connectedNamespace) : '';
-                const pods = podInfoByNamespace[nsKey]?.[interception.deployment] || [];
-                return new StatusTreeItem(
+                const namespace = this.telepresenceManager.getConnectedNamespace() || interception.namespace || 'default';
+                
+                // Para deployments interceptados, no cargar pods (están interceptados)
+                const collapsibleState = targetStatus === 'intercepted' ? 
+                    vscode.TreeItemCollapsibleState.None : 
+                    vscode.TreeItemCollapsibleState.Collapsed;
+                
+                // Buscar información adicional del deployment si está disponible
+                const deploymentInfo = deploymentsList.find(d => d.name === interception.deployment);
+                
+                const item = new StatusTreeItem(
                     interception.deployment,
-                    vscode.TreeItemCollapsibleState.Collapsed,
+                    collapsibleState,
                     'deployment-item',
                     targetStatus === 'intercepted' ? 'debug-start' : 'circle-outline',
-                    { ...interception, pods }
+                    {
+                        deployment: interception.deployment,
+                        namespace: namespace,
+                        status: interception.status,
+                        localPort: interception.localPort,
+                        clusterIP: interception.clusterIP,
+                        isIntercepted: targetStatus === 'intercepted',
+                        deploymentInfo: deploymentInfo,
+                        associatedPods: targetStatus === 'available' ? 
+                            podsList.filter(p => p.deployment === interception.deployment) : []
+                    }
                 );
+                // Asignar propiedades directamente al tree item
+                item.namespace = namespace;
+                item.deployment = interception.deployment;
+                item.description = '';
+                
+                // Añadir comando directo con argumentos para el menú contextual
+                item.command = {
+                    command: 'telepresence.scaleDeployment',
+                    title: 'Escalar Deployment',
+                    arguments: [{ deployment: interception.deployment, namespace: namespace }]
+                };
+                
+                return item;
             });
         }
 
         // Mostrar pods bajo cada deployment
         if (element && element.contextValue === 'deployment-item' && element.interception) {
+            // Solo mostrar pods si NO es un deployment interceptado
+            const interceptionData = element.interception as any;
+            if (interceptionData.isIntercepted) {
+                return []; // No mostrar pods para deployments interceptados
+            }
+            
             const pods: StatusTreeItem[] = [];
-            // Mostrar los pods ya cargados en interception.pods
-            const podList = (element.interception as any).pods || [];
+            const podList = interceptionData.associatedPods || [];
+            const namespace = this.telepresenceManager.getConnectedNamespace() || interceptionData.namespace || element.namespace || 'default';
+            const deployment = interceptionData.deployment;
+            
             for (const pod of podList) {
-                pods.push(new StatusTreeItem(
-                    `${pod.name} | Ready: ${pod.ready} | Status: ${pod.status} | Restarts: ${pod.restarts} | Age: ${pod.age}`,
+                const podItem = new StatusTreeItem(
+                    pod.name,
                     vscode.TreeItemCollapsibleState.None,
                     'pod-item',
                     pod.status === 'Running' ? 'debug-start' : 'circle-slash',
                     {
-                        deployment: element.interception.deployment,
-                        namespace: element.interception.namespace,
+                        deployment: deployment,
+                        namespace: namespace,
                         podName: pod.name,
                         status: pod.status,
                         age: pod.age,
                         restarts: pod.restarts,
                         ready: pod.ready
                     }
-                ));
+                );
+                
+                // Recordar datos en el item del pod
+                podItem.namespace = namespace;
+                podItem.deployment = deployment;
+                podItem.podName = pod.name;
+                podItem.description = `${pod.status} (${pod.restarts} restarts)`;
+                
+                pods.push(podItem);
             }
             return pods;
         }
@@ -472,6 +556,10 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
 }
 
 export class StatusTreeItem extends vscode.TreeItem {
+    public namespace?: string;
+    public deployment?: string;  // Add deployment property
+    public podName?: string;     // Add podName property
+    
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
@@ -486,6 +574,9 @@ export class StatusTreeItem extends vscode.TreeItem {
             restarts?: string;
             ready?: string;
             pods?: Array<{ name: string; ready: string; status: string; restarts: string; age: string }>;
+            isIntercepted?: boolean;
+            deploymentInfo?: { name: string; namespace: string; replicas: string; available: string; age: string };
+            associatedPods?: Array<{ name: string; ready: string; status: string; restarts: string; age: string; deployment: string }>;
         }
     ) {
         super(label, collapsibleState);
@@ -499,24 +590,45 @@ export class StatusTreeItem extends vscode.TreeItem {
         // Tooltip for deployment items
         if (contextValue === 'deployment-item' && interception && 'deployment' in interception) {
             let tooltip = `Deployment: ${interception.deployment}\n` +
-                          `Namespace: ${interception.namespace}\n` +
-                          `Status: ${interception.status}`;
-            // Solo si es TelepresenceInterception
+                          `Namespace: ${interception.namespace}`;
+            
+            if ('status' in interception) {
+                tooltip += `\nStatus: ${interception.status}`;
+            }
             if ('localPort' in interception && interception.localPort) {
                 tooltip += `\nLocal Port: ${interception.localPort}`;
             }
             if ('clusterIP' in interception && interception.clusterIP) {
                 tooltip += `\nCluster IP: ${interception.clusterIP}`;
             }
+            if ('deploymentInfo' in interception && interception.deploymentInfo) {
+                tooltip += `\nReplicas: ${interception.deploymentInfo.replicas}`;
+                tooltip += `\nAge: ${interception.deploymentInfo.age}`;
+            }
+            if ('isIntercepted' in interception && interception.isIntercepted) {
+                tooltip += `\n🎯 Currently Intercepted`;
+            }
+            
             this.tooltip = tooltip;
+            this.contextValue = 'deployment-item';
+            this.namespace = interception.namespace;
+            this.deployment = interception.deployment;
+            this.description = '';
         }
+        
         // Tooltip for pod items
         if (contextValue === 'pod-item' && interception && 'podName' in interception) {
             this.tooltip = `Pod: ${interception.podName}\n` +
+                          `Deployment: ${interception.deployment}\n` +
                           `Namespace: ${interception.namespace}\n` +
                           `Status: ${interception.status}\n` +
-                          `Age: ${interception.age}\n` +
-                          `Restarts: ${interception.restarts}`;
+                          `Ready: ${interception.ready}\n` +
+                          `Restarts: ${interception.restarts}\n` +
+                          `Age: ${interception.age}`;
+            this.contextValue = 'pod-item';
+            this.namespace = interception.namespace;
+            this.deployment = interception.deployment;
+            this.podName = interception.podName;
         }
     }
 }
@@ -531,6 +643,30 @@ export function registerActivityBarCommands(
     interceptionsProvider: InterceptionsTreeProvider,
     statusProvider: StatusTreeProvider
 ) {
+    // Comando: acciones en deployment (QuickPick)
+    const deploymentActionsCommand = vscode.commands.registerCommand('telepresence.deploymentActions', async (namespace: string, deployment: string) => {
+        const action = await vscode.window.showQuickPick(['Escalar', 'Reiniciar'], { placeHolder: `Acción para ${deployment}` });
+        if (action === 'Escalar') {
+            const replicas = await vscode.window.showInputBox({ prompt: `Número de réplicas para ${deployment}` });
+            if (replicas && !isNaN(Number(replicas))) {
+                const k8s = new KubernetesManager();
+                const ok = await k8s.scaleDeployment(namespace, deployment, Number(replicas));
+                const message = ok ? `Deployment escalado a ${replicas} réplicas` : `Error al escalar deployment`;
+                telepresenceOutputChannel.appendLine(`[Telepresence] ${message}`);
+                if (ok) {
+                    vscode.window.showInformationMessage(`Deployment escalado a ${replicas} réplicas`);
+                } else {
+                    vscode.window.showErrorMessage(`Error al escalar deployment`);
+                }
+                statusProvider.refresh();
+            }
+        } else if (action === 'Reiniciar') {
+            const k8s = new KubernetesManager();
+            const ok = await k8s.restartDeployment(namespace, deployment);
+            vscode.window.showInformationMessage(ok ? `Deployment reiniciado` : `Error al reiniciar deployment`);
+            statusProvider.refresh();
+        }
+    });
     // Refresh all views
     const refreshAllCommand = vscode.commands.registerCommand('telepresence.refreshActivityBar', () => {
         namespaceProvider.refresh();
@@ -538,7 +674,181 @@ export function registerActivityBarCommands(
         statusProvider.refresh();
     });
 
+    // Comando: escalar deployment
+    const scaleDeploymentCommand = vscode.commands.registerCommand('telepresence.scaleDeployment', async (...args: any[]) => {
+        // Intentar obtener datos de diferentes fuentes
+        let deploymentName: string | undefined;
+        let targetNamespace: string | undefined;
+        
+        // 1. Buscar en los argumentos del comando directo
+        if (args.length > 0 && args[0] && typeof args[0] === 'object') {
+            const deploymentData = args[0];
+            if (deploymentData.deployment && deploymentData.namespace) {
+                deploymentName = deploymentData.deployment;
+                targetNamespace = deploymentData.namespace;
+            }
+        }
+        
+        // 2. Si no hay datos, usar el treeItem si existe
+        if (!deploymentName && args[0] && args[0].contextValue === 'deployment-item') {
+            const treeItem = args[0];
+            deploymentName = treeItem.deployment;
+            targetNamespace = treeItem.namespace;
+        }
+        
+        // Obtener datos del namespace conectado
+        const connectedNamespace = telepresenceManager.getConnectedNamespace();
+        
+        if (!connectedNamespace) {
+            vscode.window.showErrorMessage('Error: No hay namespace conectado.');
+            return;
+        }
+
+        // Si no tenemos deployment, usar fallback
+        if (!deploymentName) {
+            // Fallback: obtener deployments disponibles del status actual
+            const status = await telepresenceManager.getFormattedTelepresenceStatus();
+            const availableDeployments = status.interceptions?.map((i: any) => i.deployment) || [];
+            
+            if (availableDeployments.length === 0) {
+                vscode.window.showErrorMessage('Error: No hay deployments disponibles.');
+                return;
+            }
+            
+            deploymentName = await vscode.window.showQuickPick(availableDeployments, {
+                placeHolder: 'Selecciona el deployment a escalar'
+            });
+            targetNamespace = connectedNamespace;
+        }
+        
+        if (!deploymentName) {
+            return;
+        }
+
+        const replicas = await vscode.window.showInputBox({
+            prompt: `Número de réplicas para ${deploymentName}`,
+            placeHolder: '1'
+        });
+        
+        if (replicas && !isNaN(Number(replicas))) {
+            const k8s = new KubernetesManager();
+            const ok = await k8s.scaleDeployment(targetNamespace || connectedNamespace, deploymentName, Number(replicas));
+            const message = ok ? `Deployment ${deploymentName} escalado a ${replicas} réplicas` : `Error al escalar deployment ${deploymentName}`;
+            telepresenceOutputChannel.appendLine(`[Telepresence] ${message}`);
+            if (ok) {
+                vscode.window.showInformationMessage(`Deployment ${deploymentName} escalado a ${replicas} réplicas`);
+            } else {
+                vscode.window.showErrorMessage(`Error al escalar deployment ${deploymentName}`);
+            }
+            statusProvider.refresh();
+        }
+    });
+
+    // Comando: reiniciar deployment
+    const restartDeploymentCommand = vscode.commands.registerCommand('telepresence.restartDeployment', async (treeItem?: StatusTreeItem) => {
+        // Obtener datos del namespace conectado y status actual
+        const connectedNamespace = telepresenceManager.getConnectedNamespace();
+        
+        if (!connectedNamespace) {
+            vscode.window.showErrorMessage('Error: No hay namespace conectado.');
+            return;
+        }
+
+        // Si el treeItem no viene o es undefined, pedimos al usuario que seleccione un deployment
+        let deploymentName: string | undefined;
+        
+        if (treeItem && treeItem.contextValue === 'deployment-item' && treeItem.deployment) {
+            deploymentName = treeItem.deployment;
+        } else {
+            // Obtener deployments disponibles del status actual
+            const status = await telepresenceManager.getFormattedTelepresenceStatus();
+            const availableDeployments = status.interceptions?.map((i: any) => i.deployment) || [];
+            
+            if (availableDeployments.length === 0) {
+                vscode.window.showErrorMessage('Error: No hay deployments disponibles.');
+                return;
+            }
+            
+            deploymentName = await vscode.window.showQuickPick(availableDeployments, {
+                placeHolder: 'Selecciona el deployment a reiniciar'
+            });
+        }
+        
+        if (!deploymentName) {
+            return;
+        }
+
+        const k8s = new KubernetesManager();
+        const ok = await k8s.restartDeployment(connectedNamespace, deploymentName);
+        vscode.window.showInformationMessage(ok ? `Deployment ${deploymentName} reiniciado` : `Error al reiniciar deployment ${deploymentName}`);
+        statusProvider.refresh();
+    });
+
+    // Comando: eliminar pod
+    const deletePodCommand = vscode.commands.registerCommand('telepresence.deletePod', async (treeItem?: StatusTreeItem) => {
+        // Obtener datos del namespace conectado
+        const connectedNamespace = telepresenceManager.getConnectedNamespace();
+        
+        if (!connectedNamespace) {
+            vscode.window.showErrorMessage('Error: No hay namespace conectado.');
+            return;
+        }
+
+        // Si el treeItem no viene o es undefined, pedimos al usuario que seleccione un pod
+        let podName: string | undefined;
+        let deploymentName: string | undefined;
+        
+        if (treeItem && treeItem.contextValue === 'pod-item' && treeItem.podName) {
+            podName = treeItem.podName;
+            deploymentName = treeItem.deployment;
+        } else {
+            // Obtener pods disponibles usando kubectl
+            try {
+                const k8s = new KubernetesManager();
+                const podsOutput = await k8s.executeCommand(`kubectl get pods -n ${connectedNamespace} --no-headers`);
+                const podLines = podsOutput.split('\n').filter(line => line.trim().length > 0);
+                const availablePods = podLines.map(line => {
+                    const cols = line.trim().split(/\s+/);
+                    return cols[0]; // nombre del pod
+                });
+                
+                if (availablePods.length === 0) {
+                    vscode.window.showErrorMessage('Error: No hay pods disponibles.');
+                    return;
+                }
+                
+                podName = await vscode.window.showQuickPick(availablePods, {
+                    placeHolder: 'Selecciona el pod a eliminar'
+                });
+            } catch (error) {
+                vscode.window.showErrorMessage('Error: No se pudieron obtener los pods.');
+                return;
+            }
+        }
+        
+        if (!podName) {
+            return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+            `¿Eliminar pod ${podName}${deploymentName ? ` del deployment ${deploymentName}` : ''}?`,
+            { modal: true },
+            'Eliminar'
+        );
+        
+        if (confirm === 'Eliminar') {
+            const k8s = new KubernetesManager();
+            const ok = await k8s.deletePod(connectedNamespace, podName);
+            vscode.window.showInformationMessage(ok ? `Pod ${podName} eliminado` : `Error al eliminar pod ${podName}`);
+            statusProvider.refresh();
+        }
+    });
+
     context.subscriptions.push(
-        refreshAllCommand
+        refreshAllCommand,
+        deploymentActionsCommand,
+        scaleDeploymentCommand,
+        restartDeploymentCommand,
+        deletePodCommand
     );
 }
