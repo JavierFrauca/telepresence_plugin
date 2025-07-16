@@ -107,6 +107,7 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
             return items;
         }
 
+        // ...existing code...
         return [];
     }
 }
@@ -376,21 +377,77 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
         }
 
         // Expandir listas de intercepted/available
-        if (element.contextValue === 'intercepted-list' || element.contextValue === 'available-list') {
+        if (element && (element.contextValue === 'intercepted-list' || element.contextValue === 'available-list')) {
             if (!this.lastStatus || !this.lastStatus.interceptions) {
                 return [];
             }
 
+            // Usa el namespace conectado de TelepresenceManager para cargar los pods
+            let podInfoByNamespace: Record<string, Record<string, Array<{ name: string; ready: string; status: string; restarts: string; age: string }>>> = {};
+            const connectedNamespace = this.telepresenceManager.getConnectedNamespace();
+            if (connectedNamespace) {
+                try {
+                    const kubernetesManager = new KubernetesManager();
+                    const stdout = await kubernetesManager.executeCommand(`kubectl get pods -n ${connectedNamespace}`);
+                    const lines = stdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
+                    let podInfoByDeployment: Record<string, Array<{ name: string; ready: string; status: string; restarts: string; age: string }>> = {};
+                    for (const line of lines) {
+                        const cols = line.trim().split(/\s+/);
+                        if (cols.length >= 5) {
+                            const [name, ready, status, restarts, age] = cols;
+                            // Extraer deployment del nombre del pod
+                            const match = name.match(/^([a-zA-Z0-9-]+-deploy)/);
+                            const deployment = match ? match[1] : undefined;
+                            if (deployment) {
+                                if (!podInfoByDeployment[deployment]) podInfoByDeployment[deployment] = [];
+                                podInfoByDeployment[deployment].push({ name, ready, status, restarts, age });
+                            }
+                        }
+                    }
+                    podInfoByNamespace[String(connectedNamespace)] = podInfoByDeployment;
+                } catch (err) {
+                    // Si falla, no hay pods en ese namespace
+                }
+            }
+
             const targetStatus = element.contextValue === 'intercepted-list' ? 'intercepted' : 'available';
             const filtered = this.lastStatus.interceptions.filter((i: any) => i.status === targetStatus);
-            
-            return filtered.map((interception: any) => new StatusTreeItem(
-                interception.deployment,
-                vscode.TreeItemCollapsibleState.None,
-                'deployment-item',
-                targetStatus === 'intercepted' ? 'debug-start' : 'circle-outline',
-                interception
-            ));
+            return filtered.map((interception: any) => {
+                const nsKey = connectedNamespace ? String(connectedNamespace) : '';
+                const pods = podInfoByNamespace[nsKey]?.[interception.deployment] || [];
+                return new StatusTreeItem(
+                    interception.deployment,
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'deployment-item',
+                    targetStatus === 'intercepted' ? 'debug-start' : 'circle-outline',
+                    { ...interception, pods }
+                );
+            });
+        }
+
+        // Mostrar pods bajo cada deployment
+        if (element && element.contextValue === 'deployment-item' && element.interception) {
+            const pods: StatusTreeItem[] = [];
+            // Mostrar los pods ya cargados en interception.pods
+            const podList = (element.interception as any).pods || [];
+            for (const pod of podList) {
+                pods.push(new StatusTreeItem(
+                    `${pod.name} | Ready: ${pod.ready} | Status: ${pod.status} | Restarts: ${pod.restarts} | Age: ${pod.age}`,
+                    vscode.TreeItemCollapsibleState.None,
+                    'pod-item',
+                    pod.status === 'Running' ? 'debug-start' : 'circle-slash',
+                    {
+                        deployment: element.interception.deployment,
+                        namespace: element.interception.namespace,
+                        podName: pod.name,
+                        status: pod.status,
+                        age: pod.age,
+                        restarts: pod.restarts,
+                        ready: pod.ready
+                    }
+                ));
+            }
+            return pods;
         }
 
         return [];
@@ -420,7 +477,16 @@ export class StatusTreeItem extends vscode.TreeItem {
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly contextValue: string,
         public readonly iconName?: string,
-        public readonly interception?: TelepresenceInterception
+        public readonly interception?: TelepresenceInterception | {
+            deployment?: string;
+            namespace: string;
+            podName?: string;
+            status?: string;
+            age?: string;
+            restarts?: string;
+            ready?: string;
+            pods?: Array<{ name: string; ready: string; status: string; restarts: string; age: string }>;
+        }
     ) {
         super(label, collapsibleState);
         
@@ -431,12 +497,26 @@ export class StatusTreeItem extends vscode.TreeItem {
         }
 
         // Tooltip for deployment items
-        if (contextValue === 'deployment-item' && interception) {
-            this.tooltip = `Deployment: ${interception.deployment}\n` +
+        if (contextValue === 'deployment-item' && interception && 'deployment' in interception) {
+            let tooltip = `Deployment: ${interception.deployment}\n` +
                           `Namespace: ${interception.namespace}\n` +
-                          `Status: ${interception.status}` +
-                          (interception.localPort ? `\nLocal Port: ${interception.localPort}` : '') +
-                          (interception.clusterIP ? `\nCluster IP: ${interception.clusterIP}` : '');
+                          `Status: ${interception.status}`;
+            // Solo si es TelepresenceInterception
+            if ('localPort' in interception && interception.localPort) {
+                tooltip += `\nLocal Port: ${interception.localPort}`;
+            }
+            if ('clusterIP' in interception && interception.clusterIP) {
+                tooltip += `\nCluster IP: ${interception.clusterIP}`;
+            }
+            this.tooltip = tooltip;
+        }
+        // Tooltip for pod items
+        if (contextValue === 'pod-item' && interception && 'podName' in interception) {
+            this.tooltip = `Pod: ${interception.podName}\n` +
+                          `Namespace: ${interception.namespace}\n` +
+                          `Status: ${interception.status}\n` +
+                          `Age: ${interception.age}\n` +
+                          `Restarts: ${interception.restarts}`;
         }
     }
 }

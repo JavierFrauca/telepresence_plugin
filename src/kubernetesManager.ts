@@ -305,6 +305,89 @@ try {
             return [];
         }
     }
+    /**
+     * List pods in a namespace
+     */
+    async getPodsInNamespace(namespace: string): Promise<string[]> {
+        try {
+            const { stdout } = await execAsync(`kubectl get pods -n ${namespace} -o jsonpath="{.items[*].metadata.name}"`);
+            return stdout.trim().split(' ').filter((pod: string) => pod.length > 0);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Get details of a pod (describe)
+     */
+    async getPodDetails(namespace: string, podName: string): Promise<string> {
+        try {
+            const { stdout } = await execAsync(`kubectl describe pod ${podName} -n ${namespace}`);
+            return stdout;
+        } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+        }
+    }
+
+    /**
+     * Get details of a deployment (describe)
+     */
+    async getDeploymentDetails(namespace: string, deploymentName: string): Promise<string> {
+        try {
+            const { stdout } = await execAsync(`kubectl describe deployment ${deploymentName} -n ${namespace}`);
+            return stdout;
+        } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+        }
+    }
+
+    /**
+     * Delete a pod
+     */
+    async deletePod(namespace: string, podName: string): Promise<boolean> {
+        try {
+            await execAsync(`kubectl delete pod ${podName} -n ${namespace}`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Delete a deployment
+     */
+    async deleteDeployment(namespace: string, deploymentName: string): Promise<boolean> {
+        try {
+            await execAsync(`kubectl delete deployment ${deploymentName} -n ${namespace}`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Scale a deployment
+     */
+    async scaleDeployment(namespace: string, deploymentName: string, replicas: number): Promise<boolean> {
+        try {
+            await execAsync(`kubectl scale deployment ${deploymentName} --replicas=${replicas} -n ${namespace}`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Restart a deployment (using rollout restart)
+     */
+    async restartDeployment(namespace: string, deploymentName: string): Promise<boolean> {
+        try {
+            await execAsync(`kubectl rollout restart deployment ${deploymentName} -n ${namespace}`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
         
     async checkKubectlInstalled(): Promise<boolean> {
         try {
@@ -582,7 +665,7 @@ try {
         }
     }
 
-    private async executeCommand(command: string): Promise<string> {
+    public async executeCommand(command: string): Promise<string> {
         this.outputChannel.appendLine(`Executing: ${command}`);
         
         try {
