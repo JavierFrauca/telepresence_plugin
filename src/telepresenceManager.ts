@@ -83,6 +83,12 @@ export class TelepresenceManager {
     }
 
     async connectToNamespace(namespace: string): Promise<void> {
+        if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
+            {
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                return;
+            }
+
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
         TelepresenceOutput.appendLine(`🚀 STARTING connectToNamespace(namespace: "${namespace}")`);
@@ -172,7 +178,7 @@ export class TelepresenceManager {
 
         try {
             // 2.9. Desconectar intercepciones activas
-            TelepresenceOutput.appendLine(`\n📋 STEP 2.9: Executing telepresence quit`);
+            TelepresenceOutput.appendLine(`📋 STEP 2.9: Executing telepresence quit`);
             const quitStartTime = Date.now();
             try {
                 const quitCommand = 'telepresence quit';
@@ -187,17 +193,8 @@ export class TelepresenceManager {
                 TelepresenceOutput.appendLine(`📊 Connect error details: ${connectError}`);
             }
             
-            // 3. Matar procesos por si acaso
-            /* TelepresenceOutput.appendLine(`\n📋 STEP 3: Killing telepresence processes`);
-            TelepresenceOutput.appendLine(`💀 Executing killTelepresenceDaemons()...`);
-            const killStartTime = Date.now();
-            await this.killTelepresenceDaemons();
-            const killDuration = Date.now() - killStartTime;
-            
-            TelepresenceOutput.appendLine(`✅ killTelepresenceDaemons() completed in ${killDuration}ms`); */
-            
             // 4. Conectar como con todo limpio
-            TelepresenceOutput.appendLine(`\n📋 STEP 4: Connecting to namespace`);
+            TelepresenceOutput.appendLine(`📋 STEP 4: Connecting to namespace`);
             const connectCommand = `telepresence connect -n ${namespace}`;
             TelepresenceOutput.appendLine(`🔗 Command to execute: "${connectCommand}"`);
             TelepresenceOutput.appendLine(`⏱️ Starting telepresence connect at: ${new Date().toISOString()}`);
@@ -219,7 +216,7 @@ export class TelepresenceManager {
             }
             
             // 5. Estado final
-            TelepresenceOutput.appendLine(`\n📋 STEP 5: Setting final state`);
+            TelepresenceOutput.appendLine(`📋 STEP 5: Setting final state`);
             this.namespaceConnection.status = 'connected';
             TelepresenceOutput.appendLine(`📊 Final namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
             
@@ -233,7 +230,7 @@ export class TelepresenceManager {
             
         } catch (error) {
             const totalDuration = Date.now() - startTime;
-            TelepresenceOutput.appendLine(`\n📋 STEP: ERROR HANDLING`);
+            TelepresenceOutput.appendLine(`📋 STEP: ERROR HANDLING`);
             TelepresenceOutput.appendLine(`❌ Error occurred: ${error}`);
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             
@@ -260,7 +257,7 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
         // Verificar estado inicial - PERO CONTINUAR SIEMPRE
-        TelepresenceOutput.appendLine(`\n📋 STEP 1: Initial state verification`);
+        TelepresenceOutput.appendLine(`📋 STEP 1: Initial state verification`);
         TelepresenceOutput.appendLine(`📊 Current namespaceConnection: ${JSON.stringify(this.namespaceConnection)}`);
         TelepresenceOutput.appendLine(`📊 Current sessions count: ${this.sessions.size}`);
         
@@ -284,7 +281,7 @@ export class TelepresenceManager {
     
         try {
             // 1. Desconectar intercepciones
-            TelepresenceOutput.appendLine(`\n📋 STEP 3: Disconnecting active interceptions`);
+            TelepresenceOutput.appendLine(`📋 STEP 3: Disconnecting active interceptions`);
             if (this.sessions.size > 0) {
                 TelepresenceOutput.appendLine(`📊 Found ${this.sessions.size} active interceptions to disconnect:`);
                 Array.from(this.sessions.values()).forEach((session, index) => {
@@ -302,7 +299,7 @@ export class TelepresenceManager {
             }
     
             // 2. telepresence quit
-            TelepresenceOutput.appendLine(`\n📋 STEP 4: Executing telepresence quit`);
+            TelepresenceOutput.appendLine(`📋 STEP 4: Executing telepresence quit`);
             const quitCommand = 'telepresence quit';
             TelepresenceOutput.appendLine(`🛑 Command to execute: "${quitCommand}"`);
             TelepresenceOutput.appendLine(`⏱️ Starting telepresence quit at: ${new Date().toISOString()}`);
@@ -334,7 +331,7 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`✅ killTelepresenceDaemons() completed in ${killDuration}ms`);
             
             // 4. Limpiar estado
-            TelepresenceOutput.appendLine(`\n📋 STEP 6: Cleaning internal state`);
+            TelepresenceOutput.appendLine(`📋 STEP 6: Cleaning internal state`);
             TelepresenceOutput.appendLine(`📊 Previous namespaceConnection: ${JSON.stringify(this.namespaceConnection)}`);
 
             this.manualDisconnectTimestamp = Date.now();
@@ -353,7 +350,7 @@ export class TelepresenceManager {
     
         } catch (error) {
             const totalDuration = Date.now() - startTime;
-            TelepresenceOutput.appendLine(`\n📋 STEP: ERROR HANDLING`);
+            TelepresenceOutput.appendLine(`📋 STEP: ERROR HANDLING`);
             TelepresenceOutput.appendLine(`❌ Error occurred: ${error}`);
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             
@@ -375,6 +372,12 @@ export class TelepresenceManager {
     }
 
     async interceptTraffic(microservice: string, localPort: number): Promise<string> {
+        if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
+            {
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                throw new Error('Must be reconect to a cluster first.');
+            }
+
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
         TelepresenceOutput.appendLine(`🎯 STARTING interceptTraffic(microservice: "${microservice}", localPort: ${localPort})`);
@@ -382,7 +385,7 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
         // 1. Verificar conexión a namespace
-        TelepresenceOutput.appendLine(`\n📋 STEP 1: Namespace connection verification`);
+        TelepresenceOutput.appendLine(`📋 STEP 1: Namespace connection verification`);
         TelepresenceOutput.appendLine(`📊 Current namespaceConnection: ${JSON.stringify(this.namespaceConnection)}`);
         
         if (!this.namespaceConnection || this.namespaceConnection.status !== 'connected') {
@@ -396,7 +399,7 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`📊 Connection start time: ${this.namespaceConnection.startTime}`);
     
         // 2. Buscar deployment
-        TelepresenceOutput.appendLine(`\n📋 STEP 2: Finding matching deployment`);
+        TelepresenceOutput.appendLine(`📋 STEP 2: Finding matching deployment`);
         TelepresenceOutput.appendLine(`🔍 Looking for deployment containing: "${microservice}"`);
         TelepresenceOutput.appendLine(`📊 Target namespace: "${namespace}"`);
         
@@ -414,7 +417,7 @@ export class TelepresenceManager {
         }
     
         // 3. Verificar sesión existente
-        TelepresenceOutput.appendLine(`\n📋 STEP 3: Checking for existing session`);
+        TelepresenceOutput.appendLine(`📋 STEP 3: Checking for existing session`);
         const sessionId = deployment;
         TelepresenceOutput.appendLine(`📊 Session ID will be: "${sessionId}"`);
         TelepresenceOutput.appendLine(`📊 Current sessions count: ${this.sessions.size}`);
@@ -436,7 +439,7 @@ export class TelepresenceManager {
         }
     
         // 4. Crear nueva sesión
-        TelepresenceOutput.appendLine(`\n📋 STEP 4: Creating new session`);
+        TelepresenceOutput.appendLine(`📋 STEP 4: Creating new session`);
         const session: TelepresenceSession = {
             id: sessionId,
             namespace,
@@ -859,6 +862,12 @@ export class TelepresenceManager {
     }
 
     async connectSession(namespace: string, microservice: string, localPort: number): Promise<string> {
+        if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
+            {
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                throw new Error('Must be reconect to a cluster first.');
+            }
+
         // If we're not connected to the namespace, connect first
         if (!this.namespaceConnection || this.namespaceConnection.status !== 'connected' || 
             this.namespaceConnection.namespace !== namespace) {
@@ -896,6 +905,12 @@ export class TelepresenceManager {
      * Parse telepresence list output and extract structured information
      */
     async getTelepresenceInterceptions(): Promise<TelepresenceInterception[]> {
+        if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
+            {
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                return[];
+            }
+
         TelepresenceOutput.appendLine(`\n📋 Getting telepresence interceptions...`);
         
         try {
@@ -1008,6 +1023,21 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`📋 Getting formatted telepresence status...`);
         
         try {
+            if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
+                {
+                    TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                    return {
+                        interceptions: [],
+                        rawOutput: 'Authentication required. Please relogin to cluster.',
+                        connectionStatus: 'error',
+                        daemonStatus: 'unknown',
+                        timestamp: new Date().toLocaleTimeString(),
+                        namespaceConnection: this.namespaceConnection,
+                        error: 'Authentication required. Please relogin to cluster.'
+                    };
+                }
+
+
             // Obtener intercepciones SIEMPRE con --use
             let interceptions: TelepresenceInterception[] = [];
             let rawOutput = '';
@@ -1232,7 +1262,6 @@ export class TelepresenceManager {
     }
 
     async executeCommand(command: string): Promise<string> {
-        TelepresenceOutput.appendLine(`Executing: ${command}`);
         
         try {
             const execOptions = process.platform === 'win32' 
@@ -1242,13 +1271,13 @@ export class TelepresenceManager {
             const { stdout, stderr } = await execAsync(command, execOptions);
             
             if (stderr) {
-                TelepresenceOutput.appendLine(`Warning: ${stderr}`);
+                TelepresenceOutput.appendLine(`⚠️ Warning: ${stderr}`);
             }
             
             return stdout;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            TelepresenceOutput.appendLine(`Command failed: ${errorMessage}`);
+            TelepresenceOutput.appendLine(`❌ Command failed: ${errorMessage}`);
             throw new Error(`Command failed: ${command}\n${errorMessage}`);
         }
     }
@@ -1317,7 +1346,7 @@ export class TelepresenceManager {
     dispose(): void {
         // Desconectar todas las sesiones y namespace al cerrar
         this.disconnectAll().catch((err: Error) => {
-            TelepresenceOutput.appendLine(`Error during cleanup: ${err.message}`);
+            TelepresenceOutput.appendLine(`❌ Error during cleanup: ${err.message}`);
         });
         
         this.outputChannel.dispose();
