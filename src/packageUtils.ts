@@ -69,18 +69,15 @@ export function getPackageInfo(): PackageInfo {
                 repository: packageJson.repository || defaultPackageInfo.repository
             };
 
-            const outputChannel = TelepresenceOutput.getChannel();
-            outputChannel.appendLine(`[Telepresence] ✅ Package info loaded from: ${packageJsonPath}`);
-            outputChannel.appendLine(`[Telepresence] 📦 Extension: ${cachedPackageInfo.displayName} v${cachedPackageInfo.version}`);
+            TelepresenceOutput.appendLine(`✅ Package info loaded from: ${packageJsonPath}`);
+            TelepresenceOutput.appendLine(`📦 Extension: ${cachedPackageInfo.displayName} v${cachedPackageInfo.version}`);
             
             return cachedPackageInfo;
         } else {
-            const outputChannel = TelepresenceOutput.getChannel();
-            outputChannel.appendLine('[Telepresence] ⚠️ package.json not found in any expected location, using defaults');
+            TelepresenceOutput.appendLine('⚠️ package.json not found in any expected location, using defaults');
         }
     } catch (error) {
-        const outputChannel = TelepresenceOutput.getChannel();
-        outputChannel.appendLine(`[Telepresence] ❌ Error loading package.json: ${error}`);
+        TelepresenceOutput.appendLine(`❌ Error loading package.json: ${error}`);
     }
 
     // If it couldn't be loaded, use default values

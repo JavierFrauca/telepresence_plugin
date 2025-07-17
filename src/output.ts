@@ -9,4 +9,10 @@ export class TelepresenceOutput {
         }
         return TelepresenceOutput.instance;
     }
+    // Append a line to the output channel including a timestamp
+    public static appendLine(message: string): void {
+        const timestamp = new Date().toISOString();
+        const formattedMessage = `[${timestamp}] ${message}`;
+        TelepresenceOutput.getChannel().appendLine(formattedMessage);
+    }
 }

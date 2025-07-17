@@ -48,11 +48,9 @@ export function activate(context: vscode.ExtensionContext) {
     i18n.initialize(context.extensionPath);
     
     const packageInfo = getPackageInfo();
-    const outputChannel = TelepresenceOutput.getChannel();
-
     // Solo log esencial
-    outputChannel.appendLine('[Telepresence] Telepresence GUI extension is now active!');
-    outputChannel.appendLine(`[Telepresence] Extension version: ${packageInfo.version}`);
+    TelepresenceOutput.appendLine('ℹ️ Telepresence GUI extension is now active!');
+    TelepresenceOutput.appendLine(`ℹ️ Extension version: ${packageInfo.version}`);
 
     const telepresenceManager = new TelepresenceManager(context.workspaceState);
     const kubernetesManager = new KubernetesManager();
@@ -109,11 +107,9 @@ export function activate(context: vscode.ExtensionContext) {
         statusTreeView
     );
     
-    // outputChannel.appendLine('[Telepresence] ✅ Activity Bar views registered successfully'); // Demasiado verboso
-
-    // Verificar estado de telepresence al activar
+     // Verificar estado de telepresence al activar
     telepresenceManager.checkCurrentTelepresenceStatus().catch(error => {
-        outputChannel.appendLine(`[Telepresence] Could not check telepresence status: ${error}`);
+        TelepresenceOutput.appendLine(`⚠️ Could not check telepresence status: ${error}`);
     });
 
     // Comando para abrir la GUI
@@ -660,19 +656,16 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const refreshNamespaceCommand = vscode.commands.registerCommand('telepresence.refreshNamespace', () => {
-        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Namespace view'); // Verbose, omit
         namespaceProvider.refresh();
         vscode.window.showInformationMessage('Namespace view updated');
     });
 
     const refreshInterceptionsCommand = vscode.commands.registerCommand('telepresence.refreshInterceptions', () => {
-        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Interceptions view'); // Verbose, omit
         interceptionsProvider.refresh();
         vscode.window.showInformationMessage('Interceptions view updated');
     });
 
     const refreshTelepresenceStatusCommand = vscode.commands.registerCommand('telepresence.refreshTelepresenceStatus', () => {
-        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Telepresence Status view'); // Verbose, omit
         statusProvider.refresh();
         vscode.window.showInformationMessage('Telepresence Status updated');
     });
@@ -780,6 +773,5 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-    const outputChannel = TelepresenceOutput.getChannel();
-    outputChannel.appendLine('[Telepresence] Extension deactivated');
+    TelepresenceOutput.appendLine('✅ Extension deactivated');
 }

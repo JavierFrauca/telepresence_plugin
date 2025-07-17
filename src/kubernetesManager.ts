@@ -13,10 +13,7 @@ export interface AuthInfo {
 }
 
 export class KubernetesManager {
-    private outputChannel: vscode.OutputChannel;
-    constructor() {
-        this.outputChannel = TelepresenceOutput.getChannel();
-    }
+    constructor() {}
 
     async checkKubeloginInstalled(): Promise<boolean> {
         try {
@@ -28,7 +25,7 @@ export class KubernetesManager {
     }
 
     async getClusterAuthInfo(): Promise<AuthInfo> {
-        this.outputChannel.appendLine(`🔍 Getting cluster authentication info...`);
+        TelepresenceOutput.appendLine(`🔍 Getting cluster authentication info...`);
         
         try {
             // 1. Analizar configuración de kubectl
@@ -36,17 +33,17 @@ export class KubernetesManager {
             const provider = this.detectProvider(config);
             const authType = this.detectAuthType(config);
             
-            this.outputChannel.appendLine(`📊 Detected: provider=${provider}, authType=${authType}`);
+            TelepresenceOutput.appendLine(`📊 Detected: provider=${provider}, authType=${authType}`);
 
             // 2. Probar acceso real
             try {
                 await this.executeCommand('kubectl auth whoami --request-timeout=10s');
-                this.outputChannel.appendLine(`✅ Authentication successful`);
+                TelepresenceOutput.appendLine(`✅ Authentication successful`);
                 return { needsAuth: false, authType, provider };
                 
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                this.outputChannel.appendLine(`❌ Auth test failed: ${errorMessage}`);
+                TelepresenceOutput.appendLine(`❌ Auth test failed: ${errorMessage}`);
                 
                 const isAuthError = this.isAuthenticationError(errorMessage);
                 return { 
@@ -59,7 +56,7 @@ export class KubernetesManager {
             
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.outputChannel.appendLine(`❌ Config analysis failed: ${errorMessage}`);
+            TelepresenceOutput.appendLine(`❌ Config analysis failed: ${errorMessage}`);
             
             return {
                 needsAuth: true,
@@ -81,7 +78,7 @@ export class KubernetesManager {
     }
 
     async installKubelogin(): Promise<void> {
-        this.outputChannel.appendLine('🔍 Checking administrator permissions...');
+        TelepresenceOutput.appendLine('🔍 Checking administrator permissions...');
         
         const hasAdmin = await this.checkAdminRights();
         
@@ -97,7 +94,7 @@ export class KubernetesManager {
 
     Once installed, restart VS Code in normal mode.`;
 
-            this.outputChannel.appendLine('❌ No admin rights detected - aborting kubelogin installation');
+            TelepresenceOutput.appendLine('❌ No admin rights detected - aborting kubelogin installation');
             
             vscode.window.showErrorMessage(
                 'Administrator permissions are required for automatic installation of Kubelogin.',
@@ -115,7 +112,7 @@ export class KubernetesManager {
             return;
         }
 
-        this.outputChannel.appendLine('✅ Administrator permissions confirmed - proceeding with kubelogin installation');
+        TelepresenceOutput.appendLine('✅ Administrator permissions confirmed - proceeding with kubelogin installation');
         
         // Código de instalación original aquí...
         const terminal = vscode.window.createTerminal({
@@ -174,11 +171,11 @@ try {
     }
 
     async installKubectl(): Promise<void> {
-        this.outputChannel.appendLine('🔍 Checking administrator permissions...');
+        TelepresenceOutput.appendLine('🔍 Checking administrator permissions...');
         const hasAdmin = await this.checkAdminRights();
         if (!hasAdmin) {
             const errorMessage = `❌ Administrator Permissions Required\n\n    Automatic installation of kubectl requires administrator permissions.\n\n    To install kubectl:\n    1. Run VS Code as Administrator\n    2. Or install manually from: https://kubernetes.io/docs/tasks/tools/#kubectl\n    3. Or use: choco install kubernetes-cli\n\n    Once installed, restart VS Code in normal mode.`;
-            this.outputChannel.appendLine('❌ No admin rights detected - aborting kubectl installation');
+            TelepresenceOutput.appendLine('❌ No admin rights detected - aborting kubectl installation');
             vscode.window.showErrorMessage(
                 'Administrator permissions are required for automatic installation of kubectl.',
                 { modal: true },
@@ -193,7 +190,7 @@ try {
             });
             return;
         }
-        this.outputChannel.appendLine('✅ Administrator permissions confirmed - proceeding with kubectl installation');
+        TelepresenceOutput.appendLine('✅ Administrator permissions confirmed - proceeding with kubectl installation');
         const terminal = vscode.window.createTerminal({
             name: 'kubectl Installer',
             shellPath: 'powershell.exe',
@@ -270,7 +267,7 @@ try {
                     break;
             }
 
-            this.outputChannel.appendLine(`Executing kubelogin: ${command}`);
+            TelepresenceOutput.appendLine(`Executing kubelogin: ${command}`);
             terminal.sendText(command);
 
         } catch (error) {
@@ -326,7 +323,7 @@ try {
             
             return deployments;
         } catch (error) {
-            this.outputChannel.appendLine(`❌ Error getting deployments with replicas: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Error getting deployments with replicas: ${error}`);
             return [];
         }
     }
@@ -428,15 +425,15 @@ try {
      * Logout de Azure y limpieza de tokens
      */
     async logout(clearTokens: boolean = true): Promise<void> {
-        this.outputChannel.appendLine('🚪 Starting Azure logout process...');
+        TelepresenceOutput.appendLine('🚪 Starting Azure logout process...');
         
         try {
             // 1. Azure CLI logout
             try {
                 await execAsync('az logout');
-                this.outputChannel.appendLine('✅ Azure CLI logout successful');
+                TelepresenceOutput.appendLine('✅ Azure CLI logout successful');
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Azure CLI logout failed: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Azure CLI logout failed: ${error}`);
             }
 
             // 2. Clear kubelogin token cache
@@ -447,10 +444,10 @@ try {
             // 3. Reset kubectl auth
             await this.resetKubectlAuth();
 
-            this.outputChannel.appendLine('✅ Logout process completed');
+            TelepresenceOutput.appendLine('✅ Logout process completed');
 
         } catch (error) {
-            this.outputChannel.appendLine(`❌ Logout process failed: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Logout process failed: ${error}`);
             throw error;
         }
     }
@@ -459,7 +456,7 @@ try {
      * Limpia tokens específicos de kubelogin
      */
     async clearKubeloginTokens(): Promise<void> {
-        this.outputChannel.appendLine('🧹 Clearing kubelogin tokens...');
+        TelepresenceOutput.appendLine('🧹 Clearing kubelogin tokens...');
         
         const os = require('os');
         const fs = require('fs');
@@ -477,14 +474,14 @@ try {
                 if (fs.existsSync(location)) {
                     if (fs.statSync(location).isDirectory()) {
                         fs.rmSync(location, { recursive: true, force: true });
-                        this.outputChannel.appendLine(`🗑️ Removed directory: ${location}`);
+                        TelepresenceOutput.appendLine(`🗑️ Removed directory: ${location}`);
                     } else {
                         fs.unlinkSync(location);
-                        this.outputChannel.appendLine(`🗑️ Removed file: ${location}`);
+                        TelepresenceOutput.appendLine(`🗑️ Removed file: ${location}`);
                     }
                 }
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Could not remove ${location}: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Could not remove ${location}: ${error}`);
             }
         }
     }
@@ -493,7 +490,7 @@ try {
      * Reset kubectl authentication
      */
     private async resetKubectlAuth(): Promise<void> {
-        this.outputChannel.appendLine('🔄 Resetting kubectl authentication...');
+        TelepresenceOutput.appendLine('🔄 Resetting kubectl authentication...');
         
         try {
             const contextResult = await execAsync('kubectl config current-context');
@@ -510,15 +507,15 @@ try {
             for (const cmd of resetCommands) {
                 try {
                     await execAsync(cmd);
-                    this.outputChannel.appendLine(`✅ ${cmd}`);
+                    TelepresenceOutput.appendLine(`✅ ${cmd}`);
                 } catch (error) {
                     // These may fail if keys don't exist, which is normal
-                    this.outputChannel.appendLine(`ℹ️ ${cmd} - ${error}`);
+                    TelepresenceOutput.appendLine(`ℹ️ ${cmd} - ${error}`);
                 }
             }
             
         } catch (error) {
-            this.outputChannel.appendLine(`⚠️ Could not reset kubectl auth: ${error}`);
+            TelepresenceOutput.appendLine(`⚠️ Could not reset kubectl auth: ${error}`);
             // Don't throw, as this is not critical
         }
     }
@@ -527,7 +524,7 @@ try {
      * Get detailed cluster information for detection
      */
     async getDetailedClusterInfo(): Promise<any> {
-        this.outputChannel.appendLine('🔍 Getting detailed cluster information...');
+        TelepresenceOutput.appendLine('🔍 Getting detailed cluster information...');
         
         try {
             const results: any = {};
@@ -537,7 +534,7 @@ try {
                 const configResult = await execAsync('kubectl config view --minify -o json');
                 results.kubeconfig = JSON.parse(configResult.stdout);
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Could not get kubeconfig: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Could not get kubeconfig: ${error}`);
             }
 
             // Get cluster info
@@ -545,7 +542,7 @@ try {
                 const clusterInfoResult = await execAsync('kubectl cluster-info --request-timeout=5s');
                 results.clusterInfo = clusterInfoResult.stdout;
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Could not get cluster info: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Could not get cluster info: ${error}`);
             }
 
             // Get server version
@@ -553,7 +550,7 @@ try {
                 const versionResult = await execAsync('kubectl version -o json --request-timeout=5s');
                 results.version = JSON.parse(versionResult.stdout);
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Could not get version info: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Could not get version info: ${error}`);
             }
 
             // Get nodes info (first node only)
@@ -562,13 +559,13 @@ try {
                 const nodesData = JSON.parse(nodesResult.stdout);
                 results.nodes = nodesData.items?.slice(0, 1);
             } catch (error) {
-                this.outputChannel.appendLine(`⚠️ Could not get nodes info: ${error}`);
+                TelepresenceOutput.appendLine(`⚠️ Could not get nodes info: ${error}`);
             }
 
             return results;
 
         } catch (error) {
-            this.outputChannel.appendLine(`❌ Failed to get detailed cluster info: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Failed to get detailed cluster info: ${error}`);
             throw error;
         }
     }
@@ -577,7 +574,7 @@ try {
      * Execute kubelogin with custom configuration
      */
     async executeKubeloginWithConfig(config: any): Promise<void> {
-        this.outputChannel.appendLine('🔐 Executing kubelogin with custom configuration...');
+        TelepresenceOutput.appendLine('🔐 Executing kubelogin with custom configuration...');
         
         try {
             if (!await this.checkKubeloginInstalled()) {
@@ -603,16 +600,16 @@ try {
             if (config.federatedTokenFile) command += ` --federated-token-file "${config.federatedTokenFile}"`;
             if (config.authority) command += ` --authority "${config.authority}"`;
 
-            this.outputChannel.appendLine(`🔄 Executing: kubelogin convert-kubeconfig [with custom config]`);
+            TelepresenceOutput.appendLine(`🔄 Executing: kubelogin convert-kubeconfig [with custom config]`);
             
             // Execute with timeout
             const result = await execAsync(command, { timeout: 120000 });
             
-            this.outputChannel.appendLine('✅ Kubelogin execution completed successfully');
-            this.outputChannel.appendLine(`Output: ${result.stdout}`);
+            TelepresenceOutput.appendLine('✅ Kubelogin execution completed successfully');
+            TelepresenceOutput.appendLine(`Output: ${result.stdout}`);
 
         } catch (error) {
-            this.outputChannel.appendLine(`❌ Kubelogin execution failed: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Kubelogin execution failed: ${error}`);
             throw error;
         }
     }
@@ -661,7 +658,6 @@ try {
      * Este método está disponible para componentes que necesitan ejecutar comandos
      */
     public async runCommand(command: string): Promise<{success: boolean, stdout?: string, stderr?: string}> {
-        this.outputChannel.appendLine(`Running command: ${command}`);
         
         try {
             const execOptions = process.platform === 'win32' 
@@ -671,13 +667,15 @@ try {
             const { stdout, stderr } = await execAsync(command, execOptions);
             
             if (stderr) {
-                this.outputChannel.appendLine(`Warning: ${stderr}`);
+                TelepresenceOutput.appendLine(`ℹ️ Running command: ${command}`);
+                TelepresenceOutput.appendLine(`❌ Warning: ${stderr}`);
             }
             
             return { success: true, stdout, stderr };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.outputChannel.appendLine(`Error executing command: ${errorMessage}`);
+            TelepresenceOutput.appendLine(`ℹ️ Running command: ${command}`);
+            TelepresenceOutput.appendLine(`❌ Error executing command: ${errorMessage}`);
             
             if (error instanceof Error && 'stderr' in error) {
                 const execError = error as any;
@@ -701,13 +699,15 @@ try {
             const { stdout, stderr } = await execAsync(command, execOptions);
             
             if (stderr) {
-                this.outputChannel.appendLine(`Warning: ${stderr}`);
+                TelepresenceOutput.appendLine(`ℹ️ Execute command: ${command}`);
+                TelepresenceOutput.appendLine(`⚠️ Warning: ${stderr}`);
             }
             
             return stdout;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.outputChannel.appendLine(`Command failed: ${errorMessage}`);
+            TelepresenceOutput.appendLine(`ℹ️ Execute command: ${command}`);
+            TelepresenceOutput.appendLine(`❌ Command failed: ${errorMessage}`);
             throw new Error(`Command failed: ${command}\n${errorMessage}`);
         }
     }
@@ -725,7 +725,7 @@ try {
             }
         } catch (error) {
             // Si falla, no tiene permisos de admin
-            this.outputChannel.appendLine(`🔒 Admin check failed: ${error}`);
+            TelepresenceOutput.appendLine(`🔒 Admin check failed: ${error}`);
             return false;
         }
     }
@@ -770,28 +770,27 @@ try {
             '$HOME/google-cloud-sdk/bin/gcloud'                                // User install path (Linux/Mac)
         ];
 
-        this.outputChannel.appendLine(`🔍 Checking for Google Cloud CLI installation...`);
+        TelepresenceOutput.appendLine(`🔍 Checking for Google Cloud CLI installation...`);
         
         for (const path of possiblePaths) {
             try {
                 // Expand environment variables in the path
                 const expandedPath = this.expandEnvVars(path);
-                this.outputChannel.appendLine(`⏳ Trying path: ${expandedPath}`);
+                TelepresenceOutput.appendLine(`⏳ Trying path: ${expandedPath}`);
                 
                 // Try with the full path or just 'gcloud' for PATH lookup
                 const command = path === 'gcloud' ? 'gcloud --version' : `"${expandedPath}" --version`;
                 const result = await execAsync(command);
                 
-                this.outputChannel.appendLine(`✅ Google Cloud CLI found at: ${expandedPath}`);
-                this.outputChannel.appendLine(`   Version info: ${result.stdout.split('\n')[0]}`);
+                TelepresenceOutput.appendLine(`✅ Google Cloud CLI found at: ${expandedPath} Version info: ${result.stdout.split('\n')[0]}`);
                 return true;
             } catch (error) {
                 // Continue to next path
-                this.outputChannel.appendLine(`❌ Not found at: ${path}`);
+                TelepresenceOutput.appendLine(`❌ Not found at: ${path}`);
             }
         }
         
-        this.outputChannel.appendLine(`❌ Google Cloud CLI not found in any standard location`);
+        TelepresenceOutput.appendLine(`❌ Google Cloud CLI not found in any standard location`);
         return false;
     }
     
@@ -822,7 +821,7 @@ try {
      * Install a CLI tool based on provider type
      */
     async installCliTool(toolType: 'az' | 'aws' | 'gcloud' | 'kubectl' | 'kubelogin' | 'minikube'): Promise<void> {
-        this.outputChannel.appendLine(`🔧 Preparing to install ${toolType}...`);
+        TelepresenceOutput.appendLine(`🔧 Preparing to install ${toolType}...`);
         
         // Installation instructions by tool type
         const instructions: Record<string, { command: string, manualUrl: string }> = {
@@ -869,7 +868,7 @@ try {
                 terminal.show();
                 terminal.sendText(info.command);
                 
-                this.outputChannel.appendLine(`🚀 Starting installation of ${toolType}...`);
+                TelepresenceOutput.appendLine(`🚀 Starting installation of ${toolType}...`);
                 
                 // Mostrar un mensaje enfático sobre la necesidad de reiniciar
                 const message = `${toolType} está siendo instalado.\n\nIMPORTANTE: Después de que la instalación se complete, DEBERÁ REINICIAR VS Code para que la herramienta sea detectada correctamente.`;
@@ -896,7 +895,7 @@ try {
                 
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                this.outputChannel.appendLine(`❌ Error during installation: ${errorMessage}`);
+                TelepresenceOutput.appendLine(`❌ Error during installation: ${errorMessage}`);
                 
                 vscode.window.showErrorMessage(
                     `Failed to install ${toolType}. Please install it manually.`
@@ -911,42 +910,41 @@ try {
      * Helps troubleshoot Google Cloud CLI installation issues
      */
     async troubleshootGcloudInstallation(): Promise<void> {
-        this.outputChannel.appendLine(`\n🛠️ Iniciando solución de problemas de Google Cloud CLI...`);
+        TelepresenceOutput.appendLine(`\n🛠️ Iniciando solución de problemas de Google Cloud CLI...`);
         
         // 1. Intentar encontrar la instalación de gcloud
         const isInstalled = await this.checkGcloudCliInstalled();
         
         if (isInstalled) {
-            this.outputChannel.appendLine(`✅ Google Cloud CLI parece estar instalado correctamente.`);
+            TelepresenceOutput.appendLine(`✅ Google Cloud CLI parece estar instalado correctamente.`);
         } else {
-            this.outputChannel.appendLine(`❌ No se pudo detectar Google Cloud CLI en las rutas estándar.`);
+            TelepresenceOutput.appendLine(`❌ No se pudo detectar Google Cloud CLI en las rutas estándar.`);
         }
         
         // 2. Verificar la variable PATH
-        this.outputChannel.appendLine(`\n🔍 Comprobando la variable PATH del sistema:`);
+        TelepresenceOutput.appendLine(`🔍 Comprobando la variable PATH del sistema:`);
         try {
             const pathVar = process.env.PATH || '';
-            this.outputChannel.appendLine(`   PATH = ${pathVar}`);
             
             // Verificar si alguna ruta de Cloud SDK está en el PATH
             const hasCloudSdk = pathVar.toLowerCase().includes('cloud sdk') || 
                                 pathVar.toLowerCase().includes('google-cloud-sdk');
             
             if (hasCloudSdk) {
-                this.outputChannel.appendLine(`✅ Se encontró una ruta de Cloud SDK en la variable PATH.`);
+                TelepresenceOutput.appendLine(`✅ Se encontró una ruta de Cloud SDK en la variable PATH.`);
             } else {
-                this.outputChannel.appendLine(`❌ No se encontró ninguna ruta de Cloud SDK en la variable PATH.`);
+                TelepresenceOutput.appendLine(`❌ No se encontró ninguna ruta de Cloud SDK en la variable PATH.`);
             }
         } catch (error) {
-            this.outputChannel.appendLine(`❌ Error al comprobar la variable PATH: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Error al comprobar la variable PATH: ${error}`);
         }
         
         // 3. Sugerencias para el usuario
-        this.outputChannel.appendLine(`\n📋 Sugerencias para solucionar problemas:`);
-        this.outputChannel.appendLine(`   1. Reinicie completamente su sistema (no solo VS Code).`);
-        this.outputChannel.appendLine(`   2. Asegúrese de que la instalación de Google Cloud SDK ha completado correctamente.`);
-        this.outputChannel.appendLine(`   3. Verifique si puede ejecutar 'gcloud --version' en un terminal externo.`);
-        this.outputChannel.appendLine(`   4. Si el comando funciona en un terminal externo pero no en VS Code, puede ser un problema de PATH.`);
+        TelepresenceOutput.appendLine(`\n📋 Sugerencias para solucionar problemas:`);
+        TelepresenceOutput.appendLine(`   1. Reinicie completamente su sistema (no solo VS Code).`);
+        TelepresenceOutput.appendLine(`   2. Asegúrese de que la instalación de Google Cloud SDK ha completado correctamente.`);
+        TelepresenceOutput.appendLine(`   3. Verifique si puede ejecutar 'gcloud --version' en un terminal externo.`);
+        TelepresenceOutput.appendLine(`   4. Si el comando funciona en un terminal externo pero no en VS Code, puede ser un problema de PATH.`);
         
         // 4. Opciones para solucionar el problema
         const selection = await vscode.window.showInformationMessage(
@@ -962,17 +960,16 @@ try {
             terminal.sendText('gcloud --version');
             terminal.sendText('echo %PATH%');
         } else if (selection === 'Ver Ubicaciones de Instalación') {
-            this.outputChannel.appendLine(`\n📂 Ubicaciones comunes de instalación de Google Cloud SDK:`);
-            this.outputChannel.appendLine(`   - C:\\Program Files (x86)\\Google\\Cloud SDK\\`);
-            this.outputChannel.appendLine(`   - %LOCALAPPDATA%\\Google\\Cloud SDK\\`);
-            this.outputChannel.appendLine(`   - %USERPROFILE%\\AppData\\Local\\Google\\Cloud SDK\\`);
-            this.outputChannel.show();
+            TelepresenceOutput.appendLine(`\n📂 Ubicaciones comunes de instalación de Google Cloud SDK:`);
+            TelepresenceOutput.appendLine(`   - C:\\Program Files (x86)\\Google\\Cloud SDK\\`);
+            TelepresenceOutput.appendLine(`   - %LOCALAPPDATA%\\Google\\Cloud SDK\\`);
+            TelepresenceOutput.appendLine(`   - %USERPROFILE%\\AppData\\Local\\Google\\Cloud SDK\\`);
         } else if (selection === 'Usar Cloud SDK Shell') {
             try {
                 await execAsync('start cmd.exe /k "C:\\Program Files (x86)\\Google\\Cloud SDK\\cloud_env.bat"');
-                this.outputChannel.appendLine(`✅ Iniciando Google Cloud SDK Shell...`);
+                TelepresenceOutput.appendLine(`✅ Iniciando Google Cloud SDK Shell...`);
             } catch {
-                this.outputChannel.appendLine(`❌ No se pudo iniciar Google Cloud SDK Shell.`);
+                TelepresenceOutput.appendLine(`❌ No se pudo iniciar Google Cloud SDK Shell.`);
                 vscode.window.showErrorMessage('No se pudo iniciar Google Cloud SDK Shell. Por favor, verifique su instalación.');
             }
         }

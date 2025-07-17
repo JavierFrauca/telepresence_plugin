@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { i18n } from '../i18n/localizationManager';
+import { TelepresenceOutput } from '../output';
 
 /**
  * Utilidad para auditar y asegurar la correcta internacionalización
@@ -63,12 +64,12 @@ export class I18nAuditor {
         
         // Reportar resultados
         if (this.missingKeys.length === 0) {
-            this.outputChannel.appendLine('✅ All localization keys are consistent across languages');
+            TelepresenceOutput.appendLine('✅ All localization keys are consistent across languages');
             return true;
         } else {
-            this.outputChannel.appendLine(`⚠️ Found ${this.missingKeys.length} inconsistent localization keys:`);
+            TelepresenceOutput.appendLine(`⚠️ Found ${this.missingKeys.length} inconsistent localization keys:`);
             this.missingKeys.forEach(item => {
-                this.outputChannel.appendLine(`  - Key "${item.key}" is missing in ${item.lang} language file`);
+                TelepresenceOutput.appendLine(`  - Key "${item.key}" is missing in ${item.lang} language file`);
             });
             this.outputChannel.show();
             return false;
@@ -80,7 +81,7 @@ export class I18nAuditor {
      * @param filePaths - Lista de rutas a archivos .ts
      */
     public auditHardcodedStrings(filePaths: string[]): void {
-        this.outputChannel.appendLine('🔍 Starting audit for hardcoded strings...');
+        TelepresenceOutput.appendLine('🔍 Starting audit for hardcoded strings...');
         
         const hardcodedPatterns = [
             /vscode\.window\.showInformationMessage\(['"](.+?)['"]/g,
@@ -104,7 +105,7 @@ export class I18nAuditor {
                     const matches = Array.from(content.matchAll(pattern));
                     if (matches.length > 0) {
                         if (!fileHasHardcoded) {
-                            this.outputChannel.appendLine(`\n📄 ${path.basename(filePath)}:`);
+                            TelepresenceOutput.appendLine(`\n📄 ${path.basename(filePath)}:`);
                             fileHasHardcoded = true;
                         }
                         
@@ -112,7 +113,7 @@ export class I18nAuditor {
                             const text = match[1];
                             // Ignorar strings que parecen ser claves de localización
                             if (!text.includes('.') || text.split('.').length < 2) {
-                                this.outputChannel.appendLine(`  - "${text}"`);
+                                TelepresenceOutput.appendLine(`  - "${text}"`);
                                 totalHardcoded++;
                             }
                         });
@@ -122,10 +123,10 @@ export class I18nAuditor {
         });
         
         if (totalHardcoded === 0) {
-            this.outputChannel.appendLine('✅ No hardcoded strings found in UI text');
+            TelepresenceOutput.appendLine('✅ No hardcoded strings found in UI text');
         } else {
-            this.outputChannel.appendLine(`\n⚠️ Found ${totalHardcoded} potentially hardcoded strings that should be localized`);
-            this.outputChannel.appendLine('   Consider moving these strings to localization files');
+            TelepresenceOutput.appendLine(`\n⚠️ Found ${totalHardcoded} potentially hardcoded strings that should be localized`);
+            TelepresenceOutput.appendLine('   Consider moving these strings to localization files');
             this.outputChannel.show();
         }
     }
