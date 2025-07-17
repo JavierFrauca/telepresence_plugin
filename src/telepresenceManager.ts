@@ -251,7 +251,7 @@ export class TelepresenceManager {
 
     async disconnectFromNamespace(): Promise<void> {
         const startTime = Date.now();
-        TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
+        TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         TelepresenceOutput.appendLine(`🔄 STARTING disconnectFromNamespace() - GENERAL CLEANUP`);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
@@ -369,6 +369,7 @@ export class TelepresenceManager {
             
             throw error;
         }
+        
     }
 
     async interceptTraffic(microservice: string, localPort: number): Promise<string> {
@@ -900,7 +901,6 @@ export class TelepresenceManager {
         return this.sessions.get(sessionId);
     }
 
-
     /**
      * Parse telepresence list output and extract structured information
      */
@@ -1036,8 +1036,6 @@ export class TelepresenceManager {
                         error: 'Authentication required. Please relogin to cluster.'
                     };
                 }
-
-
             // Obtener intercepciones SIEMPRE con --use
             let interceptions: TelepresenceInterception[] = [];
             let rawOutput = '';

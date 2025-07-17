@@ -50,7 +50,8 @@ export class SimpleKubeLoginProvider {
 
     constructor(
         private readonly extensionUri: vscode.Uri,
-        private readonly kubernetesManager: KubernetesManager
+        private readonly kubernetesManager: KubernetesManager,
+        private readonly telepresenceManager?: any
     ) {}
 
     /**
@@ -86,6 +87,9 @@ export class SimpleKubeLoginProvider {
                         break;
                     case 'setDefaultContext':
                         await this.setDefaultContext(webview, message.context);
+                        break;
+                    case 'deleteContext':
+                        await this.deleteContext(webview, message.context);
                         break;
                 }
             } catch (error) {
@@ -234,7 +238,11 @@ export class SimpleKubeLoginProvider {
                     "login.switchContext": "${i18n.localize('login.switchContext', 'Switch to Context')}",
                     "login.connect": "${i18n.localize('login.connect', 'Connect to {0}')}",
                     "login.noContexts": "${i18n.localize('login.noContexts', 'No contexts available')}",
-                    "login.noClusters": "${i18n.localize('login.noClusters', 'No clusters available')}"
+                    "login.noClusters": "${i18n.localize('login.noClusters', 'No clusters available')}",
+                    "login.deleteContext": "${i18n.localize('login.deleteContext', 'Delete Context')}",
+                    "login.confirmDeleteContext": "${i18n.localize('login.confirmDeleteContext', 'Are you sure you want to delete this context?')}",
+                    "common.delete": "${i18n.localize('common.delete', 'Delete')}",
+                    "common.cancel": "${i18n.localize('common.cancel', 'Cancel')}"
                 };
 
                 // Función para obtener traducciones
@@ -1103,6 +1111,69 @@ export class SimpleKubeLoginProvider {
             webview.postMessage({ 
                 type: 'error', 
                 message: `Error al cambiar de contexto: ${error instanceof Error ? error.message : String(error)}` 
+            });
+        }
+    }
+
+    /**
+     * Elimina un contexto de Kubernetes
+     */
+    private async deleteContext(webview: vscode.Webview, contextName: string): Promise<void> {
+        try {
+            // Verificar que no es el contexto actual
+            const currentResult = await this.kubernetesManager.runCommand(
+                'kubectl config current-context'
+            );
+            
+            const currentContext = currentResult.success && currentResult.stdout
+                ? currentResult.stdout.trim()
+                : '';
+            
+            if (currentContext === contextName) {
+                webview.postMessage({ 
+                    type: 'error', 
+                    message: i18n.localize('login.cannotDeleteCurrentContext', 'Cannot delete the current active context. Please switch to another context first.') 
+                });
+                return;
+            }
+            
+            // Confirmar la eliminación usando VS Code
+            const confirmMessage = i18n.localize('login.confirmDeleteContext', 'Are you sure you want to delete the context "{0}"? This action cannot be undone.', contextName);
+            
+            const confirmation = await vscode.window.showWarningMessage(
+                confirmMessage,
+                { modal: true },
+                i18n.localize('common.delete', 'Delete'),
+                i18n.localize('common.cancel', 'Cancel')
+            );
+            
+            if (confirmation !== i18n.localize('common.delete', 'Delete')) {
+                return;
+            }
+            
+            // Eliminar el contexto
+            const result = await this.kubernetesManager.runCommand(
+                `kubectl config delete-context ${contextName}`
+            );
+            
+            if (result.success) {
+                webview.postMessage({ 
+                    type: 'status', 
+                    message: i18n.localize('login.contextDeleted', 'Context "{0}" has been deleted successfully', contextName) 
+                });
+                
+                // Actualizar la lista de contextos
+                await this.getKubernetesContexts(webview);
+            } else {
+                webview.postMessage({ 
+                    type: 'error', 
+                    message: i18n.localize('login.errorDeletingContext', 'Could not delete context "{0}": {1}', contextName, result.stderr || 'Unknown error') 
+                });
+            }
+        } catch (error) {
+            webview.postMessage({ 
+                type: 'error', 
+                message: i18n.localize('login.errorDeletingContext', 'Could not delete context "{0}": {1}', contextName, error instanceof Error ? error.message : String(error)) 
             });
         }
     }
