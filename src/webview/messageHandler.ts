@@ -162,22 +162,24 @@ export class WebviewMessageHandler {
     // MODIFICADO: Conectar solo al namespace - ahora obtiene deployments inmediatamente
     private async handleConnectNamespace(namespace: string, webview: vscode.Webview): Promise<void> {
         // Usar TelepresenceOutput.appendLine directamente
-        
         try {
             TelepresenceOutput.getChannel().show();
-            
             await this.telepresenceManager.connectToNamespace(namespace);
-    
-            
             const deployments = await this.kubernetesManager.getDeploymentsInNamespace(namespace);
-            
             // Notificación nativa VS Code
-            const msg = deployments.length > 0 
+            const msg = deployments.length > 0
                 ? i18n.localize('messageHandler.connectNamespace.success', namespace, deployments.length)
                 : i18n.localize('messageHandler.connectNamespace.successNoDeployments', namespace);
             vscode.window.showInformationMessage(msg);
 
-            // Solo enviar deployments para autocompletado
+            // Enviar mensaje de éxito explícito al frontend
+            webview.postMessage({
+                type: 'connectNamespaceSuccess',
+                message: msg,
+                hasDeployments: deployments.length > 0
+            });
+
+            // Enviar deployments para autocompletado
             webview.postMessage({
                 type: 'deploymentsUpdate',
                 namespace: namespace,
@@ -187,6 +189,11 @@ export class WebviewMessageHandler {
         } catch (error) {
             TelepresenceOutput.appendLine(`[Telepresence] Error in handleConnectNamespace: ${error}`);
             vscode.window.showErrorMessage(i18n.localize('messageHandler.connectNamespace.error', namespace) + ': ' + (error instanceof Error ? error.message : String(error)));
+            // Enviar mensaje de error explícito al frontend
+            webview.postMessage({
+                type: 'connectNamespaceError',
+                error: error instanceof Error ? error.message : String(error)
+            });
         }
     }
 

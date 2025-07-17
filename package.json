@@ -2,7 +2,7 @@
   "name": "telepresence-gui",
   "displayName": "Telepresence GUI",
   "description": "Graphical interface for managing Telepresence in Kubernetes",
-  "version": "1.0.102",
+  "version": "1.0.103",
   "publisher": "JavierFrauca",
   "icon": "icon.png",
   "license": "MIT",

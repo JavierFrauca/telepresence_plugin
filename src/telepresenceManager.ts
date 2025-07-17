@@ -85,13 +85,13 @@ export class TelepresenceManager {
     async connectToNamespace(namespace: string): Promise<void> {
         if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
             {
-                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`,true);
                 return;
             }
 
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
-        TelepresenceOutput.appendLine(`🚀 STARTING connectToNamespace(namespace: "${namespace}")`);
+        TelepresenceOutput.appendLine(`🚀 STARTING connectToNamespace(namespace: "${namespace}")`,true);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
@@ -252,7 +252,7 @@ export class TelepresenceManager {
     async disconnectFromNamespace(): Promise<void> {
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
-        TelepresenceOutput.appendLine(`🔄 STARTING disconnectFromNamespace() - GENERAL CLEANUP`);
+        TelepresenceOutput.appendLine(`🔄 STARTING disconnectFromNamespace() - GENERAL CLEANUP`,true);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
@@ -375,13 +375,13 @@ export class TelepresenceManager {
     async interceptTraffic(microservice: string, localPort: number): Promise<string> {
         if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
             {
-                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`, true);
                 throw new Error('Must be reconect to a cluster first.');
             }
 
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
-        TelepresenceOutput.appendLine(`🎯 STARTING interceptTraffic(microservice: "${microservice}", localPort: ${localPort})`);
+        TelepresenceOutput.appendLine(`🎯 STARTING interceptTraffic(microservice: "${microservice}", localPort: ${localPort})`,true);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
@@ -561,7 +561,7 @@ export class TelepresenceManager {
         } catch (error) {
             const totalDuration = Date.now() - startTime;
             TelepresenceOutput.appendLine(`\n📋 STEP: ERROR HANDLING`);
-            TelepresenceOutput.appendLine(`❌ Error occurred: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Error occurred: ${error}`,true);
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             
             session.status = 'error';
@@ -584,7 +584,7 @@ export class TelepresenceManager {
     async disconnectInterception(sessionId: string): Promise<void> {
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
-        TelepresenceOutput.appendLine(`🔄 STARTING disconnectInterception(sessionId: "${sessionId}")`);
+        TelepresenceOutput.appendLine(`🔄 STARTING disconnectInterception(sessionId: "${sessionId}")`,true);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
         
@@ -786,7 +786,7 @@ export class TelepresenceManager {
         } catch (error) {
             const totalDuration = Date.now() - startTime;
             TelepresenceOutput.appendLine(`\n📋 STEP: ERROR HANDLING`);
-            TelepresenceOutput.appendLine(`❌ Critical error occurred: ${error}`);
+            TelepresenceOutput.appendLine(`❌ Critical error occurred: ${error}`,true);
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             TelepresenceOutput.appendLine(`📊 Error message: ${error instanceof Error ? error.message : String(error)}`);
             
@@ -865,7 +865,7 @@ export class TelepresenceManager {
     async connectSession(namespace: string, microservice: string, localPort: number): Promise<string> {
         if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
             {
-                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`);
+                TelepresenceOutput.appendLine(`❌ FAILURE: Relogin to cluster`,true);
                 throw new Error('Must be reconect to a cluster first.');
             }
 
@@ -1020,7 +1020,7 @@ export class TelepresenceManager {
         namespaceConnection: NamespaceConnection | null;
         error?: string;
     }> {
-        TelepresenceOutput.appendLine(`📋 Getting formatted telepresence status...`);
+        TelepresenceOutput.appendLine(`📋 Get telepresence status...`,true);
         
         try {
             if (await this.kubernetesManager.checkClusterAuthNeeded()===true)
