@@ -26,6 +26,25 @@ export class WebviewMessageHandler {
 
     async handleMessage(message: WebviewMessage, webview: vscode.Webview): Promise<void> {
         switch (message.type) {
+            // Handle notification requests from the webview (frontend)
+            case 'showNotification': {
+                // message: { type: 'showNotification', message: string, messageType: 'info'|'success'|'error'|'warning' }
+                const { message: msg, messageType } = message as any;
+                if (typeof msg === 'string') {
+                    if (messageType === 'error') {
+                        vscode.window.showErrorMessage(msg);
+                    } else if (messageType === 'warning') {
+                        vscode.window.showWarningMessage(msg);
+                    } else if (messageType === 'success' || messageType === 'info') {
+                        vscode.window.showInformationMessage(msg);
+                    } else {
+                        vscode.window.showInformationMessage(msg);
+                    }
+                }
+                // Optionally, send a response to the webview to allow UI to re-enable buttons if needed
+                webview.postMessage({ type: 'notificationShown', messageType, message: msg });
+                break;
+            }
             // Special case for webview initialization
             case 'webviewLoaded':
                 await this.sendLocalizedStrings(webview);
@@ -42,7 +61,7 @@ export class WebviewMessageHandler {
                 await this.getTelepresenceStatus(webview);
                 break;
             case 'disconnectInterception':
-                this.outputChannel.appendLine(`[Telepresence] 🔌 Received disconnectInterception for: ${(message as DisconnectInterceptionMessage).sessionId}`);
+                // this.outputChannel.appendLine(`[Telepresence] 🔌 Received disconnectInterception for: ${(message as DisconnectInterceptionMessage).sessionId}`); // Verbose, omit
                 await this.handleDisconnectInterception((message as DisconnectInterceptionMessage).sessionId, webview);
                 await this.getTelepresenceStatus(webview);
                 break;
@@ -94,16 +113,16 @@ export class WebviewMessageHandler {
     private async sendLocalizedStrings(webview: vscode.Webview): Promise<void> {
         try {
             // Log para depuración
-            this.outputChannel.appendLine(`[Telepresence] 📝 Sending localized strings to webview. Language: ${i18n.getLanguage()}`);
+            // this.outputChannel.appendLine(`[Telepresence] 📝 Sending localized strings to webview. Language: ${i18n.getLanguage()}`); // Verbose, omit
             
             // Verificar que tenemos cadenas
             const strings = i18n.getLocalizedStrings();
             const stringCount = Object.keys(strings).length;
             
             if (stringCount === 0) {
-                this.outputChannel.appendLine(`[Telepresence] ⚠️ WARNING: No localized strings available!`);
+                this.outputChannel.appendLine(`[Telepresence] WARNING: No localized strings available!`);
             } else {
-                this.outputChannel.appendLine(`[Telepresence] ✅ Sending ${stringCount} localized strings`);
+                // this.outputChannel.appendLine(`[Telepresence] ✅ Sending ${stringCount} localized strings`); // Verbose, omit
                 
                 // Log some important keys to debug issues
                 const importantKeys = [
@@ -114,7 +133,7 @@ export class WebviewMessageHandler {
                 ];
                 
                 importantKeys.forEach(key => {
-                    this.outputChannel.appendLine(`[Telepresence] 🔑 ${key} = "${strings[key] || 'NOT FOUND'}"`);
+                    // this.outputChannel.appendLine(`[Telepresence] 🔑 ${key} = "${strings[key] || 'NOT FOUND'}"`); // Verbose, omit
                 });
             }
             
@@ -125,7 +144,7 @@ export class WebviewMessageHandler {
             });
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.outputChannel.appendLine(`[Telepresence] ❌ Error sending localized strings: ${errorMessage}`);
+            this.outputChannel.appendLine(`[Telepresence] Error sending localized strings: ${errorMessage}`);
             
             // Intentar enviar un conjunto mínimo de strings para que la UI no falle
             webview.postMessage({
@@ -146,46 +165,34 @@ export class WebviewMessageHandler {
         const outputChannel = this.outputChannel;
         
         try {
-            outputChannel.appendLine(`📨 Received connectNamespace request for: ${namespace}`);
+            // outputChannel.appendLine(`📨 Received connectNamespace request for: ${namespace}`); // Verbose, omit
             outputChannel.show();
             
             await this.telepresenceManager.connectToNamespace(namespace);
     
-            outputChannel.appendLine(`✅ connectToNamespace completed successfully`);
+            // outputChannel.appendLine(`✅ connectToNamespace completed successfully`); // Verbose, omit
             
             // NUEVO: Obtener deployments inmediatamente después de conectar exitosamente
-            outputChannel.appendLine(`🔍 Getting deployments for namespace: ${namespace}`);
+            // outputChannel.appendLine(`🔍 Getting deployments for namespace: ${namespace}`); // Verbose, omit
             const deployments = await this.kubernetesManager.getDeploymentsInNamespace(namespace);
-            outputChannel.appendLine(`📋 Found ${deployments.length} deployments in namespace ${namespace}`);
+            // outputChannel.appendLine(`📋 Found ${deployments.length} deployments in namespace ${namespace}`); // Verbose, omit
             
-            // Enviar respuesta de éxito con información de deployments
-            webview.postMessage({
-                type: 'connectNamespaceSuccess',
-                namespace: namespace,
-                deployments: deployments,
-                hasDeployments: deployments.length > 0,
-                message: deployments.length > 0 
-                    ? i18n.localize('messageHandler.connectNamespace.success', namespace, deployments.length)
-                    : i18n.localize('messageHandler.connectNamespace.successNoDeployments', namespace)
-            });
+            // Notificación nativa VS Code
+            const msg = deployments.length > 0 
+                ? i18n.localize('messageHandler.connectNamespace.success', namespace, deployments.length)
+                : i18n.localize('messageHandler.connectNamespace.successNoDeployments', namespace);
+            vscode.window.showInformationMessage(msg);
 
-            // Also send deployments update separately for autocomplete
+            // Solo enviar deployments para autocompletado
             webview.postMessage({
                 type: 'deploymentsUpdate',
                 namespace: namespace,
                 deployments: deployments
             });
-    
             await this.getTelepresenceStatus(webview);
-    
         } catch (error) {
-            outputChannel.appendLine(`❌ Error in handleConnectNamespace: ${error}`);
-            
-            webview.postMessage({
-                type: 'connectNamespaceError',
-                namespace: namespace,
-                error: error instanceof Error ? error.message : String(error)
-            });
+            outputChannel.appendLine(`[Telepresence] Error in handleConnectNamespace: ${error}`);
+            vscode.window.showErrorMessage(i18n.localize('messageHandler.connectNamespace.error', namespace) + ': ' + (error instanceof Error ? error.message : String(error)));
         }
     }
 
@@ -193,7 +200,7 @@ export class WebviewMessageHandler {
     private async handleDisconnectNamespace(webview: vscode.Webview): Promise<void> {
         const outputChannel = this.outputChannel;
         try {
-            outputChannel.appendLine('Executing general telepresence cleanup');
+            // outputChannel.appendLine('Executing general telepresence cleanup'); // Verbose, omit
             
             const currentNamespace = this.telepresenceManager.getConnectedNamespace();
             await this.telepresenceManager.disconnectFromNamespace();
@@ -201,23 +208,14 @@ export class WebviewMessageHandler {
             const message = currentNamespace 
                 ? `Successfully disconnected from namespace '${currentNamespace}' and cleanup completed`
                 : `General telepresence cleanup completed successfully`;
-
-            webview.postMessage({
-                type: 'disconnectNamespaceSuccess', 
-                message: message
-            });
-
-            // 👈 NUEVO: Esperar que telepresence termine de limpiar
-            outputChannel.appendLine('⏳ Waiting for telepresence to fully cleanup...');
+            vscode.window.showInformationMessage(message);
+            // Esperar que telepresence termine de limpiar
+            // outputChannel.appendLine('⏳ Waiting for telepresence to fully cleanup...'); // Verbose, omit
             await new Promise(resolve => setTimeout(resolve, 3000));
-            
             await this.getTelepresenceStatus(webview);
         } catch (error) {
-            outputChannel.appendLine('Error desconectando del namespace: ' + (error instanceof Error ? error.message : String(error)));
-            webview.postMessage({
-                type: 'disconnectNamespaceError',
-                error: error instanceof Error ? error.message : String(error)
-            });
+            outputChannel.appendLine('[Telepresence] Error desconectando del namespace: ' + (error instanceof Error ? error.message : String(error)));
+            vscode.window.showErrorMessage('Error disconnecting from namespace: ' + (error instanceof Error ? error.message : String(error)));
         }
     }
 
@@ -225,31 +223,21 @@ export class WebviewMessageHandler {
     private async handleInterceptTraffic(data: InterceptTrafficMessage['data'], webview: vscode.Webview): Promise<void> {
         const outputChannel = this.outputChannel;
         try {
-            outputChannel.appendLine(`[Telepresence] 🔄 Starting traffic interception for service: ${data.microservice} on port: ${data.localPort}`);
-            
+            // outputChannel.appendLine(`[Telepresence] 🔄 Starting traffic interception for service: ${data.microservice} on port: ${data.localPort}`); // Verbose, omit
             const sessionId = await this.telepresenceManager.interceptTraffic(
                 data.microservice,
                 parseInt(data.localPort)
             );
-
-            outputChannel.appendLine(`[Telepresence] ✅ Traffic interception established successfully, session ID: ${sessionId}`);
-
-            webview.postMessage({
-                type: 'interceptTrafficSuccess',
-                sessionId: sessionId,
-                message: i18n.localize('messageHandler.interceptTraffic.success', data.microservice, data.localPort)
-            });
-            
-            // Llamar inmediatamente para obtener datos reales
+            // outputChannel.appendLine(`[Telepresence] ✅ Traffic interception established successfully, session ID: ${sessionId}`); // Verbose, omit
+            const msg = i18n.localize('messageHandler.interceptTraffic.success', data.microservice, data.localPort);
+            vscode.window.showInformationMessage(msg);
+            webview.postMessage({ type: 'interceptTrafficDone', success: true, message: msg });
             await this.getTelepresenceStatus(webview);
-            
         } catch (error) {
-            outputChannel.appendLine(`[Telepresence] ❌ Error setting up traffic interception: ${error instanceof Error ? error.message : String(error)}`);
-            
-            webview.postMessage({
-                type: 'interceptTrafficError',
-                error: error instanceof Error ? error.message : String(error)
-            });
+            const errMsg = 'Error intercepting traffic: ' + (error instanceof Error ? error.message : String(error));
+            outputChannel.appendLine(`[Telepresence] Error setting up traffic interception: ${errMsg}`);
+            vscode.window.showErrorMessage(errMsg);
+            webview.postMessage({ type: 'interceptTrafficDone', success: false, message: errMsg });
         }
     }
 
@@ -257,29 +245,18 @@ export class WebviewMessageHandler {
     private async handleDisconnectInterception(sessionId: string, webview: vscode.Webview): Promise<void> {
         const outputChannel = this.outputChannel;
         try {
-            outputChannel.appendLine(`[Telepresence] 🔄 Disconnecting interception with session ID: ${sessionId}`);
+            // outputChannel.appendLine(`[Telepresence] 🔄 Disconnecting interception with session ID: ${sessionId}`); // Verbose, omit
             
             await this.telepresenceManager.disconnectInterception(sessionId);
             
             outputChannel.appendLine(`[Telepresence] ✅ Interception disconnected successfully`);
             
-            webview.postMessage({
-                type: 'disconnectInterceptionSuccess',
-                sessionId: sessionId,
-                message: i18n.localize('messageHandler.disconnectInterception.success')
-            });
-            
+            vscode.window.showInformationMessage(i18n.localize('messageHandler.disconnectInterception.success'));
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             outputChannel.appendLine(`[Telepresence] ❌ Error in handleDisconnectInterception: ${errorMessage}`);
-            
-            webview.postMessage({
-                type: 'disconnectInterceptionError',
-                sessionId: sessionId,
-                error: errorMessage
-            });
+            vscode.window.showErrorMessage('Error disconnecting interception: ' + errorMessage);
         }
-        
         // Actualizar estado después de la operación (éxito o error)
         await this.getTelepresenceStatus(webview);
     }
@@ -294,17 +271,11 @@ export class WebviewMessageHandler {
             const successMessage = sessionCount > 0 
                 ? `${sessionCount} traffic interception(s) successfully disconnected`
                 : 'There were no active interceptions to disconnect';
-            webview.postMessage({
-                type: 'disconnectAllInterceptionsSuccess',
-                message: successMessage
-            });
+            vscode.window.showInformationMessage(successMessage);
             outputChannel.appendLine('All interceptions successfully disconnected');
         } catch (error) {
             outputChannel.appendLine('Error disconnecting all interceptions: ' + (error instanceof Error ? error.message : String(error)));
-            webview.postMessage({
-                type: 'disconnectAllInterceptionsError',
-                error: error instanceof Error ? error.message : String(error)
-            });
+            vscode.window.showErrorMessage('Error disconnecting all interceptions: ' + (error instanceof Error ? error.message : String(error)));
         }
         await this.getTelepresenceStatus(webview);
     }

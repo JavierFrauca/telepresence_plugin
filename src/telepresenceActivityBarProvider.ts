@@ -9,8 +9,6 @@ import { KubernetesManager } from './kubernetesManager';
  * 3. Telepresence Status
  */
 
-// Canal de salida para Telepresence
-const telepresenceOutputChannel = vscode.window.createOutputChannel('Telepresence');
 
 // ===========================================
 // NAMESPACE CONNECTION PROVIDER
@@ -445,7 +443,7 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
                         }
                     }
                 } catch (err) {
-                    console.error('Error loading deployments/pods:', err);
+                    // Error loading deployments/pods, omit verbose log
                 }
             }
 
@@ -482,12 +480,8 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
                 item.deployment = interception.deployment;
                 item.description = '';
                 
-                // Añadir comando directo con argumentos para el menú contextual
-                item.command = {
-                    command: 'telepresence.scaleDeployment',
-                    title: 'Escalar Deployment',
-                    arguments: [{ deployment: interception.deployment, namespace: namespace }]
-                };
+                // No añadir comandos de acción por item, solo globales en el Activity Bar
+                item.command = undefined;
                 
                 return item;
             });
@@ -591,7 +585,6 @@ export class StatusTreeItem extends vscode.TreeItem {
         if (contextValue === 'deployment-item' && interception && 'deployment' in interception) {
             let tooltip = `Deployment: ${interception.deployment}\n` +
                           `Namespace: ${interception.namespace}`;
-            
             if ('status' in interception) {
                 tooltip += `\nStatus: ${interception.status}`;
             }
@@ -608,12 +601,12 @@ export class StatusTreeItem extends vscode.TreeItem {
             if ('isIntercepted' in interception && interception.isIntercepted) {
                 tooltip += `\n🎯 Currently Intercepted`;
             }
-            
             this.tooltip = tooltip;
             this.contextValue = 'deployment-item';
             this.namespace = interception.namespace;
             this.deployment = interception.deployment;
             this.description = '';
+            this.command = undefined;
         }
         
         // Tooltip for pod items
@@ -629,6 +622,7 @@ export class StatusTreeItem extends vscode.TreeItem {
             this.namespace = interception.namespace;
             this.deployment = interception.deployment;
             this.podName = interception.podName;
+            this.command = undefined;
         }
     }
 }
@@ -652,7 +646,6 @@ export function registerActivityBarCommands(
                 const k8s = new KubernetesManager();
                 const ok = await k8s.scaleDeployment(namespace, deployment, Number(replicas));
                 const message = ok ? `Deployment escalado a ${replicas} réplicas` : `Error al escalar deployment`;
-                telepresenceOutputChannel.appendLine(`[Telepresence] ${message}`);
                 if (ok) {
                     vscode.window.showInformationMessage(`Deployment escalado a ${replicas} réplicas`);
                 } else {
@@ -734,7 +727,6 @@ export function registerActivityBarCommands(
             const k8s = new KubernetesManager();
             const ok = await k8s.scaleDeployment(targetNamespace || connectedNamespace, deploymentName, Number(replicas));
             const message = ok ? `Deployment ${deploymentName} escalado a ${replicas} réplicas` : `Error al escalar deployment ${deploymentName}`;
-            telepresenceOutputChannel.appendLine(`[Telepresence] ${message}`);
             if (ok) {
                 vscode.window.showInformationMessage(`Deployment ${deploymentName} escalado a ${replicas} réplicas`);
             } else {

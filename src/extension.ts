@@ -17,17 +17,42 @@ import { ThrottleUtility } from './utils/throttleUtility';
 import { I18nAuditor } from './utils/i18nAuditor';
 
 export function activate(context: vscode.ExtensionContext) {
+    // Auto-refresh para status, deployments y interceptions usando el intervalo de settings
+    const config = vscode.workspace.getConfiguration('telepresence');
+    let autoRefreshInterval = config.get<number>('autoRefreshInterval') || 10; // segundos
+    if (typeof autoRefreshInterval !== 'number' || isNaN(autoRefreshInterval) || autoRefreshInterval < 1) {
+        autoRefreshInterval = 10;
+    }
+    let autoRefreshTimeoutId: NodeJS.Timeout | undefined;
+
+    async function autoRefreshTick() {
+        if (telepresenceManager.isConnectedToNamespace()) {
+            // Si alguna refresh es async, esperar a que terminen todas
+            await Promise.all([
+                Promise.resolve(statusProvider.refresh()),
+                Promise.resolve(treeProvider.refresh()),
+                Promise.resolve(interceptionsProvider.refresh())
+            ]);
+        }
+        autoRefreshTimeoutId = setTimeout(autoRefreshTick, autoRefreshInterval * 1000);
+    }
+
+    function startAutoRefresh() {
+        if (autoRefreshTimeoutId) {
+            clearTimeout(autoRefreshTimeoutId);
+        }
+        autoRefreshTimeoutId = setTimeout(autoRefreshTick, autoRefreshInterval * 1000);
+    }
     
     // Initialize the localization manager
-    i18n.initialize(context.extensionPath).then(() => {
-        outputChannel.appendLine(`[Telepresence] 🌐 Localization initialized. Language: ${i18n.getLanguage()}`);
-    });
+    i18n.initialize(context.extensionPath);
     
     const packageInfo = getPackageInfo();
     const outputChannel = TelepresenceOutput.getChannel();
 
-    outputChannel.appendLine('[Telepresence] 🚀 Telepresence GUI extension is now active!');
-    outputChannel.appendLine(`[Telepresence] 📦 Extension version: ${packageInfo.version}`);
+    // Solo log esencial
+    outputChannel.appendLine('[Telepresence] Telepresence GUI extension is now active!');
+    outputChannel.appendLine(`[Telepresence] Extension version: ${packageInfo.version}`);
 
     const telepresenceManager = new TelepresenceManager(context.workspaceState);
     const kubernetesManager = new KubernetesManager();
@@ -38,6 +63,29 @@ export function activate(context: vscode.ExtensionContext) {
     const namespaceProvider = new NamespaceTreeProvider(telepresenceManager, kubernetesManager);
     const interceptionsProvider = new InterceptionsTreeProvider(telepresenceManager);
     const statusProvider = new StatusTreeProvider(telepresenceManager);
+
+    // Iniciar el auto-refresh inicial
+    startAutoRefresh();
+    context.subscriptions.push({
+        dispose: () => {
+            if (autoRefreshTimeoutId) {
+                clearTimeout(autoRefreshTimeoutId);
+            }
+        },
+    });
+
+    // Escuchar cambios en la configuración para actualizar el intervalo dinámicamente
+    vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('telepresence.autoRefreshInterval')) {
+            const newConfig = vscode.workspace.getConfiguration('telepresence');
+            let newInterval = newConfig.get<number>('autoRefreshInterval') || 10;
+            if (typeof newInterval !== 'number' || isNaN(newInterval) || newInterval < 1) {
+                newInterval = 10;
+            }
+            autoRefreshInterval = newInterval;
+            startAutoRefresh();
+        }
+    });
 
     // Registrar TreeViews en el Activity Bar
 
@@ -61,13 +109,11 @@ export function activate(context: vscode.ExtensionContext) {
         statusTreeView
     );
     
-    outputChannel.appendLine('[Telepresence] ✅ Activity Bar views registered successfully');
+    // outputChannel.appendLine('[Telepresence] ✅ Activity Bar views registered successfully'); // Demasiado verboso
 
     // Verificar estado de telepresence al activar
-    telepresenceManager.checkCurrentTelepresenceStatus().then(() => {
-        outputChannel.appendLine('[Telepresence] ✅ Telepresence status checked on activation');
-    }).catch(error => {
-        outputChannel.appendLine(`[Telepresence] ⚠️ Could not check telepresence status: ${error}`);
+    telepresenceManager.checkCurrentTelepresenceStatus().catch(error => {
+        outputChannel.appendLine(`[Telepresence] Could not check telepresence status: ${error}`);
     });
 
     // Comando para abrir la GUI
@@ -82,7 +128,6 @@ export function activate(context: vscode.ExtensionContext) {
                 localResourceRoots: [context.extensionUri]
             }
         );
-
         webviewProvider.setupWebview(panel.webview);
     });
 
@@ -615,19 +660,19 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const refreshNamespaceCommand = vscode.commands.registerCommand('telepresence.refreshNamespace', () => {
-        outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Namespace view');
+        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Namespace view'); // Verbose, omit
         namespaceProvider.refresh();
         vscode.window.showInformationMessage('Namespace view updated');
     });
 
     const refreshInterceptionsCommand = vscode.commands.registerCommand('telepresence.refreshInterceptions', () => {
-        outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Interceptions view');
+        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Interceptions view'); // Verbose, omit
         interceptionsProvider.refresh();
         vscode.window.showInformationMessage('Interceptions view updated');
     });
 
     const refreshTelepresenceStatusCommand = vscode.commands.registerCommand('telepresence.refreshTelepresenceStatus', () => {
-        outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Telepresence Status view');
+        // outputChannel.appendLine('[Telepresence] 🔄 Manual refresh: Telepresence Status view'); // Verbose, omit
         statusProvider.refresh();
         vscode.window.showInformationMessage('Telepresence Status updated');
     });
@@ -656,46 +701,7 @@ export function activate(context: vscode.ExtensionContext) {
         I18nAuditor.registerCommand(context) // Comando para auditar internacionalización
     );
 
-    // Auto-refresh
-    const config = vscode.workspace.getConfiguration('telepresence');
-    const generalRefreshInterval = config.get<number>('generalRefreshInterval') || 15;
-    const telepresenceRefreshInterval = config.get<number>('telepresenceRefreshInterval') || 5;
-
-    // Aplicar throttling a las funciones de actualización
-    const throttledNamespaceRefresh = ThrottleUtility.throttle(() => {
-        namespaceProvider.refresh();
-    }, 1000); // Throttle a 1 segundo como mínimo
-
-    const throttledTreeRefresh = ThrottleUtility.throttle(() => {
-        treeProvider.refresh();
-    }, 1000);
-
-    const throttledInterceptionsRefresh = ThrottleUtility.throttle(() => {
-        interceptionsProvider.refresh();
-    }, 1000);
-
-    const throttledStatusRefresh = ThrottleUtility.throttle(() => {
-        statusProvider.refresh();
-    }, 1000);
-
-    const generalIntervalId = setInterval(() => {
-        throttledTreeRefresh();
-        throttledNamespaceRefresh();
-    }, generalRefreshInterval * 1000);
-
-    const telepresenceIntervalId = setInterval(() => {
-        throttledInterceptionsRefresh();
-        throttledStatusRefresh();
-    }, telepresenceRefreshInterval * 1000);
-
-    context.subscriptions.push(
-        {
-            dispose: () => {
-                clearInterval(generalIntervalId);
-                clearInterval(telepresenceIntervalId);
-            },
-        }
-    );
+    // Auto-refresh deshabilitado: la actualización de Activity Bar solo se realiza manualmente mediante los iconos de refresco.
 
     // Verificar prerequisitos al iniciar
     telepresenceManager.checkTelepresenceInstalled().then(installed => {
@@ -775,5 +781,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     const outputChannel = TelepresenceOutput.getChannel();
-    outputChannel.appendLine('[Telepresence] Telepresence GUI extension is now deactivated');
+    outputChannel.appendLine('[Telepresence] Extension deactivated');
 }

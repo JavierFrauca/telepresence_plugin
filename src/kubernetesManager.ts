@@ -692,7 +692,6 @@ try {
     }
 
     public async executeCommand(command: string): Promise<string> {
-        this.outputChannel.appendLine(`Executing: ${command}`);
         
         try {
             const execOptions = process.platform === 'win32' 

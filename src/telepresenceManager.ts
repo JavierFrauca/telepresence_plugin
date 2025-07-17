@@ -1136,7 +1136,6 @@ export class TelepresenceManager {
             // Verificación adicional con telepresence status como fallback
             try {
                 const statusOutput = await this.executeCommand('telepresence status');
-                this.outputChannel.appendLine(`📊 Telepresence status output: ${statusOutput}`);
                 
                 // Solo override si detectamos algo inesperado
                 if (statusOutput.includes('Connected') && !hasNamespaceConnection && !hasActiveInterceptions) {
@@ -1267,7 +1266,6 @@ export class TelepresenceManager {
             
             // Check if telepresence is connected
             const statusOutput = await this.executeCommand('telepresence status');
-            this.outputChannel.appendLine(`📊 Telepresence status output: ${statusOutput}`);
             
             if (statusOutput.includes('Status            : Connected')) {
                 // 🆕 NEW LOGIC: Extract namespace whenever we're connected

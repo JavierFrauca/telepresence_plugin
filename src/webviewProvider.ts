@@ -50,7 +50,7 @@ export class TelepresenceWebviewProvider {
                     await this.messageHandler.handleMessage(message, webview);
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : String(error);
-                    this.outputChannel.appendLine(`[Telepresence] ❌ Error handling webview message: ${errorMessage}`);
+                    this.outputChannel.appendLine(`[Telepresence] Error handling webview message: ${errorMessage}`);
                     
                     // Send error message to webview
                     const errorResponse: ErrorMessage = {
@@ -65,10 +65,10 @@ export class TelepresenceWebviewProvider {
             // Inicializar datos del webview
             this.messageHandler.initializeWebview(webview);
 
-            this.outputChannel.appendLine('[Telepresence] ✅ Webview configurado correctamente');
+            // this.outputChannel.appendLine('[Telepresence] ✅ Webview configurado correctamente'); // Verbose, omit
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.outputChannel.appendLine(`[Telepresence] ❌ Error setting up webview: ${errorMessage}`);
+            this.outputChannel.appendLine(`[Telepresence] Error setting up webview: ${errorMessage}`);
             vscode.window.showErrorMessage(`Error setting up Telepresence GUI: ${errorMessage}`);
         }
     }

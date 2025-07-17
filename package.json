@@ -208,24 +208,24 @@
           "command": "telepresence.refreshTelepresenceStatus",
           "when": "view == telepresenceStatus",
           "group": "navigation@1"
-        }
-      ],
-      "view/item/context": [
+        },
         {
           "command": "telepresence.scaleDeployment",
-          "when": "view == telepresenceStatus && viewItem == deployment-item",
-          "group": "inline"
+          "when": "view == telepresenceStatus",
+          "group": "navigation@2"
         },
         {
           "command": "telepresence.restartDeployment",
-          "when": "view == telepresenceStatus && viewItem == deployment-item",
-          "group": "inline"
+          "when": "view == telepresenceStatus",
+          "group": "navigation@3"
         },
         {
           "command": "telepresence.deletePod",
-          "when": "view == telepresenceStatus && viewItem == pod-item",
-          "group": "inline"
-        },
+          "when": "view == telepresenceStatus",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
         {
           "command": "telepresence.disconnectFromTree",
           "when": "view == telepresenceView && viewItem == session",

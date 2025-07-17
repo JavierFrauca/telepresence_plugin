@@ -543,10 +543,6 @@ body {
     color: white;
 }
 
-.status-error {
-    background-color: var(--vscode-testing-iconFailed);
-    color: white;
-}
 
 .status-header {
     display: flex;
@@ -627,10 +623,6 @@ body {
     color: white;
 }
 
-.intercept-error {
-    background-color: var(--vscode-testing-iconFailed);
-    color: white;
-}
 
 /* =================================
    INFO PANEL
