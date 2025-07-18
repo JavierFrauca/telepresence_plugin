@@ -4,13 +4,26 @@ This extension brings the power of Telepresence directly to Visual Studio Code, 
 
 ## Main Features
 
-- **Native Telepresence Integration**: Run, manage, and monitor Telepresence sessions without leaving VS Code, facilitating the development and debugging of services running in Kubernetes.
-- **Simplified Kubernetes Cluster Login**: Authenticate and connect to clusters from multiple providers (Azure AKS, GKE, EKS, local, and generic) with an intuitive interface and minimal steps.
-- **Advanced Authentication Support**: Integration with kubelogin for modern authentication in clusters requiring Azure AD, OIDC, and other identity methods.
-- **Visual Management of Namespaces and Interceptions**: Visualize and manage connections to namespaces and traffic interceptions through an intuitive graphical interface and dedicated panels.
-- **Dedicated Activity Bar**: Quickly access all functionalities from a side panel with specific views for namespace connections, active interceptions, and system status.
-- **Interactive Control Panel**: Integrated web interface to manage all Telepresence functionalities with real-time information.
-- **Detailed Notifications and Logs**: Receive relevant messages, warnings, and errors in real-time, with access to complete logs from the VS Code output panel.
+## Main Features
+
+- **Auto-refresh configurable**: Automatically refresh status, deployments, and interceptions at a user-defined interval.
+- **Dedicated Activity Bar Panels**: Separate views for namespaces, interceptions, deployments, and system status.
+- **Deployment Management**:
+  - Scale deployments (change replica count) directly from the UI.
+  - Restart deployments with a single action.
+  - Deployments are now visualized separately from pods for easier management.
+- **Enhanced Kubernetes Login Screen**: You can now delete saved cluster connections directly from the login interface.
+- **New Commands**:
+  - Connect only to a namespace (`telepresence.connectNamespace`)
+  - Disconnect from a namespace (`telepresence.disconnectNamespace`)
+  - Intercept traffic (`telepresence.interceptTraffic`)
+  - Simple Kubernetes login via webview (`telepresence.loginToKubernetes`)
+  - Guided installation for Telepresence, kubectl, and kubelogin
+  - Refresh views (namespace, interceptions, status)
+  - Internationalization audit (`I18nAuditor`)
+- **Improved Visual Management**: More feedback and notifications for every action.
+- **Automatic Prerequisite Checks**: On activation, the extension checks for required tools and offers installation options.
+- **Expanded kubelogin Support**: Recommended for any Kubernetes cluster, not just Azure.
 
 ## Installation
 

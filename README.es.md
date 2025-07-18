@@ -4,12 +4,26 @@ Esta extensión integra la potencia de Telepresence directamente en Visual Studi
 
 ## Características Principales
 
-- **Integración Nativa con Telepresence**: Ejecuta, gestiona y monitoriza sesiones de Telepresence sin salir de VS Code, facilitando el desarrollo y depuración de servicios que se ejecutan en Kubernetes.
-- **Inicio de Sesión Simplificado en Clústeres Kubernetes**: Autentica y conecta con clústeres de múltiples proveedores (Azure AKS, GKE, EKS, local y genérico) con una interfaz intuitiva y pasos mínimos.
-- **Soporte Avanzado de Autenticación**: Integración con kubelogin para autenticación moderna en clústeres que requieren Azure AD, OIDC y otros métodos de identidad.
-- **Gestión Visual de Espacios de Nombres e Intercepciones**: Visualiza y gestiona conexiones a espacios de nombres e intercepciones de tráfico a través de una interfaz gráfica intuitiva y paneles dedicados.
-- **Barra de Actividades Dedicada**: Accede rápidamente a todas las funcionalidades desde un panel lateral con vistas específicas para conexiones de espacios de nombres, intercepciones activas y estado del sistema.
-- **Panel de Control Interactivo**: Interfaz web integrada para gestionar todas las funcionalidades de Telepresence con información en tiempo real.
+## Características Principales
+
+- **Auto-refresh configurable**: Actualización automática de estado, deployments e intercepciones según el intervalo definido en la configuración.
+- **Paneles dedicados en la barra de actividades**: Vistas separadas para espacios de nombres, intercepciones, deployments y estado del sistema.
+- **Gestión de deployments**:
+  - Escalado de deployments (cambiar el número de réplicas) directamente desde la interfaz.
+  - Reinicio de deployments con un solo clic.
+  - Los deployments se visualizan ahora separados de los pods para una gestión más sencilla.
+- **Pantalla de login Kubernetes mejorada**: Ahora puedes eliminar conexiones guardadas directamente desde la interfaz de login.
+- **Nuevos comandos**:
+  - Conectar solo al namespace (`telepresence.connectNamespace`)
+  - Desconectar del namespace (`telepresence.disconnectNamespace`)
+  - Interceptar tráfico (`telepresence.interceptTraffic`)
+  - Login simple a Kubernetes vía webview (`telepresence.loginToKubernetes`)
+  - Instalación guiada de Telepresence, kubectl y kubelogin
+  - Refrescar vistas (namespace, intercepciones, estado)
+  - Auditoría de internacionalización (`I18nAuditor`)
+- **Gestión visual mejorada**: Más feedback y notificaciones en cada acción.
+- **Verificación automática de prerequisitos**: Al activar la extensión se verifica la instalación de herramientas necesarias y se ofrecen opciones de instalación.
+- **Soporte ampliado para kubelogin**: Recomendado para cualquier cluster Kubernetes, no solo Azure.
 - **Notificaciones y Registros Detallados**: Recibe mensajes, advertencias y errores relevantes en tiempo real, con acceso a registros completos desde el panel de salida de VS Code.
 
 ## Instalación
