@@ -7,6 +7,7 @@ This extension brings the power of Telepresence directly to Visual Studio Code, 
 ## Main Features
 
 - **Auto-refresh configurable**: Automatically refresh status, deployments, and interceptions at a user-defined interval.
+- **Manual refresh mode**: Set the auto-refresh interval to `0` to switch into manual mode and trigger status updates from the Activity Bar or the GUI refresh button when you need them.
 - **Dedicated Activity Bar Panels**: Separate views for namespaces, interceptions, deployments, and system status.
 - **Deployment Management**:
   - Scale deployments (change replica count) directly from the UI.
@@ -55,6 +56,12 @@ This extension brings the power of Telepresence directly to Visual Studio Code, 
 - `Telepresence: Disconnect` - Disconnects an active interception.
 - `Telepresence: Show Version Info` - Shows information about tool versions.
 
+### Status Refresh Modes
+
+- The `telepresence.autoRefreshInterval` setting defines how often the shared status service refreshes data. The default is 20 seconds.
+- Set the interval to `0` to enter manual mode. In this mode, the Activity Bar status view and the GUI's "Refresh Status" button trigger refreshes on demand without background polling.
+- Both the Activity Bar and the webview consume the same cached snapshot, so a single refresh updates every surface and avoids redundant Telepresence CLI invocations.
+
 ## Requirements
 
 - **Visual Studio Code**: Version 1.74.0 or higher
@@ -81,6 +88,25 @@ If you encounter any issues with the extension:
 1. Verify that the command-line tools (Telepresence, kubectl, kubelogin) are correctly installed and accessible in the PATH.
 2. Check the extension logs in the "OUTPUT" section of VS Code, selecting "Telepresence" in the dropdown.
 3. Use the `Telepresence: Show Version Info` command to verify the installed versions.
+
+## Packaging & Distribution
+
+1. Install the official VS Code packaging tool (only once):
+  ```bash
+  npm install -g @vscode/vsce
+  ```
+2. From the project root (`c:\repo\telepresence_plugin`), build a `.vsix` file:
+  ```bash
+  vsce package
+  ```
+  This runs `npm run vscode:prepublish` under the hood and emits `telepresence-gui-<version>.vsix` in the same folder.
+3. Install the generated package locally via **Extensions → … → Install from VSIX…** or from the CLI:
+  ```bash
+  code --install-extension telepresence-gui-<version>.vsix
+  ```
+4. Optional helpers:
+  - `vsce ls` shows which files will be included before packaging.
+  - `vsce publish` uploads to the Marketplace (requires a publisher PAT).
 
 ## Contributions
 

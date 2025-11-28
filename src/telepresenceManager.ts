@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { exec, spawn, ChildProcess } from 'child_process';
+import { exec, spawn, ChildProcess, SpawnOptions } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { promisify } from 'util';
 import { InjectedTelepresenceSettingsManager, ConnectionConfig } from './settingsManager';
 import { KubernetesManager, AuthInfo } from './kubernetesManager';
 import { TelepresenceOutput } from './output';
-import { ThrottleUtility } from './utils/throttleUtility';
 
 const execAsync = promisify(exec);
 
@@ -33,12 +34,45 @@ export interface TelepresenceInterception {
     replicas?: string; // Información de réplicas del deployment (ej: "2/2")
 }
 
+export interface NamespaceResources {
+    deployments: Array<{ name: string; namespace: string; replicas: string; available: string; age: string }>;
+    pods: Array<{ name: string; ready: string; status: string; restarts: string; age: string; deployment: string }>;
+}
+
+export interface TelepresenceStatusSnapshot {
+    interceptions: TelepresenceInterception[];
+    rawOutput: string;
+    connectionStatus: string;
+    daemonStatus: string;
+    timestamp: string;
+    namespaceConnection: NamespaceConnection | null;
+    error?: string;
+    namespaceResources?: NamespaceResources;
+}
+
 // NEW: Interface for namespace connection state
 export interface NamespaceConnection {
     namespace: string;
     status: 'connecting' | 'connected' | 'disconnecting' | 'disconnected' | 'error';
     startTime?: Date;
     error?: string;
+}
+
+export interface StatusRefreshMetadata {
+    autoRefreshInterval: number;
+    autoRefreshEnabled: boolean;
+    manualOnly: boolean;
+    lastTrigger: string | null;
+    lastRunStartedAt: number | null;
+    lastRunCompletedAt: number | null;
+    lastDurationMs: number | null;
+    inProgress: boolean;
+    lastError: string | null;
+}
+
+interface StatusRefreshOptions {
+    trigger?: string;
+    allowQueue?: boolean;
 }
 
 export class TelepresenceManager {
@@ -48,11 +82,310 @@ export class TelepresenceManager {
     private settingsManager: InjectedTelepresenceSettingsManager;
     private manualDisconnectTimestamp: number = 0;
     private kubernetesManager: KubernetesManager;
+    private namespaceCache: string[] = [];
+    private namespaceCacheTimestamp = 0;
+    private namespacesChangedEmitter = new vscode.EventEmitter<string[]>();
+    public readonly onNamespacesChanged = this.namespacesChangedEmitter.event;
+    private namespaceConnectionEmitter = new vscode.EventEmitter<NamespaceConnection | null>();
+    public readonly onNamespaceConnectionChanged = this.namespaceConnectionEmitter.event;
+    private sessionsChangedEmitter = new vscode.EventEmitter<TelepresenceSession[]>();
+    public readonly onSessionsChanged = this.sessionsChangedEmitter.event;
+    private statusSnapshot: TelepresenceStatusSnapshot | null = null;
+    private statusSnapshotTimestamp = 0;
+    private statusSnapshotEmitter = new vscode.EventEmitter<TelepresenceStatusSnapshot>();
+    public readonly onStatusSnapshotChanged = this.statusSnapshotEmitter.event;
+    private statusUpdatesSuspended = false;
+    private statusUpdateSuspendedReason: string | null = null;
+    private statusUpdatesSuspendedEmitter = new vscode.EventEmitter<{ suspended: boolean; reason?: string | null }>();
+    public readonly onStatusUpdatesSuspendedChanged = this.statusUpdatesSuspendedEmitter.event;
+    private statusAutoRefreshIntervalSeconds = 20;
+    private statusAutoRefreshTimer: NodeJS.Timeout | null = null;
+    private statusRefreshInProgress = false;
+    private statusRefreshQueued = false;
+    private statusRefreshPromise: Promise<TelepresenceStatusSnapshot | null> | null = null;
+    private statusRefreshMetadata: StatusRefreshMetadata = {
+        autoRefreshInterval: 20,
+        autoRefreshEnabled: true,
+        manualOnly: false,
+        lastTrigger: null,
+        lastRunStartedAt: null,
+        lastRunCompletedAt: null,
+        lastDurationMs: null,
+        inProgress: false,
+        lastError: null
+    };
 
     constructor(workspaceState: vscode.Memento) {
         // outputChannel ya inicializado arriba
         this.settingsManager = new InjectedTelepresenceSettingsManager(workspaceState);
         this.kubernetesManager = new KubernetesManager();
+    }
+
+    private notifyNamespacesChanged(): void {
+        this.namespacesChangedEmitter.fire([...this.namespaceCache]);
+    }
+
+    private notifySessionsChanged(): void {
+        this.sessionsChangedEmitter.fire(this.getSessions());
+    }
+
+    private updateNamespaceConnection(state: NamespaceConnection | null): void {
+        if (state) {
+            this.namespaceConnection = { ...state };
+            this.namespaceConnectionEmitter.fire({ ...this.namespaceConnection });
+        } else {
+            this.namespaceConnection = null;
+            this.namespaceConnectionEmitter.fire(null);
+        }
+        this.evaluateStatusAutoRefreshLoop(true);
+    }
+
+    private emitStatusSnapshot(snapshot: TelepresenceStatusSnapshot): void {
+        this.statusSnapshot = snapshot;
+        this.statusSnapshotTimestamp = Date.now();
+        this.statusSnapshotEmitter.fire({ ...snapshot });
+    }
+
+    getCachedStatusSnapshot(): TelepresenceStatusSnapshot | null {
+        if (!this.statusSnapshot) {
+            return null;
+        }
+
+        const clone: TelepresenceStatusSnapshot = {
+            ...this.statusSnapshot,
+            interceptions: this.statusSnapshot.interceptions.map(interception => ({ ...interception })),
+            namespaceConnection: this.statusSnapshot.namespaceConnection
+                ? { ...this.statusSnapshot.namespaceConnection }
+                : null,
+            namespaceResources: this.statusSnapshot.namespaceResources
+                ? {
+                    deployments: this.statusSnapshot.namespaceResources.deployments.map(dep => ({ ...dep })),
+                    pods: this.statusSnapshot.namespaceResources.pods.map(pod => ({ ...pod }))
+                }
+                : undefined
+        };
+
+        return clone;
+    }
+
+    getStatusRefreshMetadata(): StatusRefreshMetadata {
+        return { ...this.statusRefreshMetadata };
+    }
+
+    setStatusAutoRefreshInterval(seconds: number): void {
+        const sanitized = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+        this.statusAutoRefreshIntervalSeconds = sanitized;
+        this.statusRefreshMetadata.autoRefreshInterval = sanitized;
+        this.statusRefreshMetadata.autoRefreshEnabled = sanitized > 0;
+        this.statusRefreshMetadata.manualOnly = sanitized <= 0;
+
+        if (sanitized <= 0) {
+            this.stopStatusAutoRefreshTimer();
+        }
+
+        this.evaluateStatusAutoRefreshLoop(true);
+    }
+
+    private stopStatusAutoRefreshTimer(): void {
+        if (this.statusAutoRefreshTimer) {
+            clearTimeout(this.statusAutoRefreshTimer);
+            this.statusAutoRefreshTimer = null;
+        }
+    }
+
+    private canAutoRefresh(): boolean {
+        return this.statusAutoRefreshIntervalSeconds > 0 &&
+            this.isConnectedToNamespace() &&
+            !this.statusUpdatesSuspended;
+    }
+
+    private evaluateStatusAutoRefreshLoop(immediate = false): void {
+        if (!this.canAutoRefresh()) {
+            this.stopStatusAutoRefreshTimer();
+            return;
+        }
+
+        if (this.statusAutoRefreshTimer || this.statusRefreshInProgress) {
+            return;
+        }
+
+        const delay = immediate ? 0 : this.statusAutoRefreshIntervalSeconds * 1000;
+        this.statusAutoRefreshTimer = setTimeout(() => {
+            this.statusAutoRefreshTimer = null;
+            this.autoRefreshTick().catch(error => {
+                TelepresenceOutput.appendLine(`⚠️ Auto refresh failed: ${error}`);
+            });
+        }, delay);
+    }
+
+    private async autoRefreshTick(): Promise<void> {
+        if (!this.canAutoRefresh()) {
+            return;
+        }
+
+        await this.refreshStatusSnapshot({ trigger: 'auto', allowQueue: false });
+        this.evaluateStatusAutoRefreshLoop();
+    }
+
+    async refreshStatusSnapshot(options?: StatusRefreshOptions): Promise<TelepresenceStatusSnapshot | null> {
+        const trigger = options?.trigger ?? 'manual';
+        const allowQueue = options?.allowQueue ?? true;
+
+        if (this.statusRefreshInProgress) {
+            if (allowQueue) {
+                this.statusRefreshQueued = true;
+            }
+            return this.statusRefreshPromise;
+        }
+
+        this.statusRefreshInProgress = true;
+        this.statusRefreshMetadata.inProgress = true;
+        this.statusRefreshMetadata.lastTrigger = trigger;
+        this.statusRefreshMetadata.lastRunStartedAt = Date.now();
+
+        const runner = (async () => {
+            try {
+                const snapshot = await this.getFormattedTelepresenceStatus();
+                this.emitStatusSnapshot(snapshot);
+                this.statusRefreshMetadata.lastError = null;
+                return snapshot;
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                this.statusRefreshMetadata.lastError = errorMessage;
+                TelepresenceOutput.appendLine(`⚠️ Status refresh failed [${trigger}]: ${errorMessage}`);
+                return null;
+            } finally {
+                const completedAt = Date.now();
+                this.statusRefreshMetadata.lastRunCompletedAt = completedAt;
+                if (this.statusRefreshMetadata.lastRunStartedAt) {
+                    this.statusRefreshMetadata.lastDurationMs = completedAt - this.statusRefreshMetadata.lastRunStartedAt;
+                } else {
+                    this.statusRefreshMetadata.lastDurationMs = null;
+                }
+                this.statusRefreshMetadata.inProgress = false;
+                this.statusRefreshInProgress = false;
+                this.statusRefreshPromise = null;
+
+                if (this.statusRefreshQueued) {
+                    this.statusRefreshQueued = false;
+                    this.evaluateStatusAutoRefreshLoop(true);
+                } else {
+                    this.evaluateStatusAutoRefreshLoop();
+                }
+            }
+        })();
+
+        this.statusRefreshPromise = runner;
+        return runner;
+    }
+
+    async forceQuitTelepresenceCleanup(): Promise<void> {
+        const startTime = Date.now();
+        TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
+        TelepresenceOutput.appendLine('🧹 FORCE QUIT REQUESTED: Running "telepresence quit -s" to clean stale sessions');
+        TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
+        TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
+
+        try {
+            try {
+                const quitOutput = await this.executeCommand('telepresence quit -s');
+                TelepresenceOutput.appendLine('✅ telepresence quit -s completed successfully');
+                if (quitOutput?.trim()) {
+                    TelepresenceOutput.appendLine(quitOutput.trim());
+                }
+            } catch (error) {
+                TelepresenceOutput.appendLine(`⚠️ telepresence quit -s failed: ${error}`);
+            }
+
+            try {
+                await this.killTelepresenceDaemons();
+                TelepresenceOutput.appendLine('✅ killTelepresenceDaemons executed after quit');
+            } catch (error) {
+                TelepresenceOutput.appendLine(`⚠️ killTelepresenceDaemons failed: ${error}`);
+            }
+
+            // Reset local state so UI reflects cleared environment
+            this.sessions.clear();
+            this.notifySessionsChanged();
+            this.manualDisconnectTimestamp = Date.now();
+            this.updateNamespaceConnection(null);
+            TelepresenceOutput.appendLine('ℹ️ Cleared cached sessions and namespace connection state');
+
+            await this.refreshStatusSnapshot({ trigger: 'forceQuitCleanup', allowQueue: false });
+            TelepresenceOutput.appendLine('🔄 Status snapshot refreshed after force quit');
+        } finally {
+            const duration = Date.now() - startTime;
+            TelepresenceOutput.appendLine(`⏱️ Force quit duration: ${duration}ms`);
+            TelepresenceOutput.appendLine(`${'='.repeat(80)}
+`);
+        }
+    }
+
+    suspendStatusUpdates(reason?: string): void {
+        if (this.statusUpdatesSuspended) {
+            if (reason) {
+                this.statusUpdateSuspendedReason = reason;
+                this.statusUpdatesSuspendedEmitter.fire({ suspended: true, reason });
+            }
+            return;
+        }
+
+        this.statusUpdatesSuspended = true;
+        this.statusUpdateSuspendedReason = reason ?? null;
+        this.statusUpdatesSuspendedEmitter.fire({ suspended: true, reason: this.statusUpdateSuspendedReason });
+        this.evaluateStatusAutoRefreshLoop();
+    }
+
+    resumeStatusUpdates(): void {
+        if (!this.statusUpdatesSuspended) {
+            return;
+        }
+
+        const reason = this.statusUpdateSuspendedReason;
+        this.statusUpdatesSuspended = false;
+        this.statusUpdateSuspendedReason = null;
+        this.statusUpdatesSuspendedEmitter.fire({ suspended: false, reason });
+        this.evaluateStatusAutoRefreshLoop(true);
+    }
+
+    areStatusUpdatesSuspended(): boolean {
+        return this.statusUpdatesSuspended;
+    }
+
+    getStatusUpdateSuspendedReason(): string | null {
+        return this.statusUpdateSuspendedReason;
+    }
+
+    async refreshNamespaces(options?: { force?: boolean }): Promise<string[]> {
+        const force = options?.force ?? false;
+        const cacheTtlMs = 30_000;
+
+        if (!force && this.namespaceCache.length > 0) {
+            const age = Date.now() - this.namespaceCacheTimestamp;
+            if (age < cacheTtlMs) {
+                this.notifyNamespacesChanged();
+                return [...this.namespaceCache];
+            }
+        }
+
+        try {
+            const namespaces = await this.kubernetesManager.getNamespaces();
+            this.namespaceCache = namespaces;
+            this.namespaceCacheTimestamp = Date.now();
+            this.notifyNamespacesChanged();
+            return [...this.namespaceCache];
+        } catch (error) {
+            TelepresenceOutput.appendLine(`⚠️ Could not refresh namespaces: ${error}`);
+            return [...this.namespaceCache];
+        }
+    }
+
+    async listNamespaces(): Promise<string[]> {
+        return this.refreshNamespaces();
+    }
+
+    getCachedNamespaces(): string[] {
+        return [...this.namespaceCache];
     }
 
     async checkTelepresenceInstalled(): Promise<boolean> {
@@ -78,7 +411,7 @@ export class TelepresenceManager {
 
     async forceResetConnectionState(): Promise<void> {
         TelepresenceOutput.appendLine(`🔄 Force resetting connection state...`);
-        this.namespaceConnection = null;
+        this.updateNamespaceConnection(null);
         TelepresenceOutput.appendLine(`✅ Connection state reset`);
     }
 
@@ -125,8 +458,8 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`\n📋 STEP 2: Setting internal state`);
         TelepresenceOutput.appendLine(`📊 Previous namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
         
-        this.namespaceConnection = { namespace, status: 'connecting', startTime: new Date() };
-        TelepresenceOutput.appendLine(`📊 New namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
+    this.updateNamespaceConnection({ namespace, status: 'connecting', startTime: new Date() });
+    TelepresenceOutput.appendLine(`📊 New namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
         TelepresenceOutput.appendLine(`✅ Internal state set to 'connecting'`);
         
         // 2.5. Verificar autenticación si es necesario
@@ -217,7 +550,8 @@ export class TelepresenceManager {
             
             // 5. Estado final
             TelepresenceOutput.appendLine(`📋 STEP 5: Setting final state`);
-            this.namespaceConnection.status = 'connected';
+            const connectionStart = this.namespaceConnection?.startTime ?? new Date();
+            this.updateNamespaceConnection({ namespace, status: 'connected', startTime: connectionStart });
             TelepresenceOutput.appendLine(`📊 Final namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
             
             const totalDuration = Date.now() - startTime;
@@ -227,6 +561,8 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Connected to namespace: "${namespace}"`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
+
+            await this.refreshStatusSnapshot({ trigger: 'connectToNamespace', allowQueue: false });
             
         } catch (error) {
             const totalDuration = Date.now() - startTime;
@@ -234,8 +570,13 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`❌ Error occurred: ${error}`);
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             
-            this.namespaceConnection.status = 'error';
-            this.namespaceConnection.error = error instanceof Error ? error.message : String(error);
+            const errorState: NamespaceConnection = {
+                namespace,
+                status: 'error',
+                startTime: this.namespaceConnection?.startTime,
+                error: error instanceof Error ? error.message : String(error)
+            };
+            this.updateNamespaceConnection(errorState);
             TelepresenceOutput.appendLine(`📊 Error namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
             
             TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
@@ -275,7 +616,11 @@ export class TelepresenceManager {
 
         // CAMBIAR: Solo cambiar estado si hay conexión activa
         if (this.namespaceConnection) {
-            this.namespaceConnection.status = 'disconnecting';
+            this.updateNamespaceConnection({
+                namespace: this.namespaceConnection.namespace,
+                status: 'disconnecting',
+                startTime: this.namespaceConnection.startTime
+            });
             TelepresenceOutput.appendLine(`📊 Updated namespaceConnection: ${JSON.stringify(this.namespaceConnection)}`);
         }
     
@@ -337,7 +682,7 @@ export class TelepresenceManager {
             this.manualDisconnectTimestamp = Date.now();
             TelepresenceOutput.appendLine(`📊 Manual disconnect timestamp set: ${this.manualDisconnectTimestamp}`);
             
-            this.namespaceConnection = null;
+            this.updateNamespaceConnection(null);
             TelepresenceOutput.appendLine(`📊 New namespaceConnection: ${this.namespaceConnection}`);
                         
             const totalDuration = Date.now() - startTime;
@@ -347,6 +692,7 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Disconnected from namespace: "${namespace}"`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
+            await this.refreshStatusSnapshot({ trigger: 'disconnectFromNamespace', allowQueue: false });
     
         } catch (error) {
             const totalDuration = Date.now() - startTime;
@@ -355,8 +701,12 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
             
             if (this.namespaceConnection) {
-                this.namespaceConnection.status = 'error';
-                this.namespaceConnection.error = error instanceof Error ? error.message : String(error);
+                this.updateNamespaceConnection({
+                    namespace: this.namespaceConnection.namespace,
+                    status: 'error',
+                    startTime: this.namespaceConnection.startTime,
+                    error: error instanceof Error ? error.message : String(error)
+                });
                 TelepresenceOutput.appendLine(`📊 Error namespaceConnection state: ${JSON.stringify(this.namespaceConnection)}`);
             }
             
@@ -439,6 +789,13 @@ export class TelepresenceManager {
             throw new Error(`Interception already exists for '${deployment}' in namespace '${namespace}'`);
         }
     
+        let suspendedByOperation = false;
+        const suspensionReason = `interceptTraffic:${sessionId}`;
+        if (!this.areStatusUpdatesSuspended()) {
+            this.suspendStatusUpdates(suspensionReason);
+            suspendedByOperation = true;
+        }
+
         // 4. Crear nueva sesión
         TelepresenceOutput.appendLine(`📋 STEP 4: Creating new session`);
         const session: TelepresenceSession = {
@@ -456,6 +813,7 @@ export class TelepresenceManager {
         this.sessions.set(sessionId, session);
         TelepresenceOutput.appendLine(`✅ Session added to sessions map`);
         TelepresenceOutput.appendLine(`📊 Total sessions now: ${this.sessions.size}`);
+        this.notifySessionsChanged();
     
         try {
             // 5. Ejecutar replace SIEMPRE con --use
@@ -499,6 +857,7 @@ export class TelepresenceManager {
             session.process = replaceProcess;
             session.status = 'connected';
             this.sessions.set(sessionId, session);
+            this.notifySessionsChanged();
             
             const replaceSpawnDuration = Date.now() - replaceStartTime;
             TelepresenceOutput.appendLine(`✅ Process spawn completed in ${replaceSpawnDuration}ms`);
@@ -556,6 +915,7 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
     
+            await this.refreshStatusSnapshot({ trigger: 'interceptTraffic', allowQueue: false });
             return sessionId;
     
         } catch (error) {
@@ -566,9 +926,8 @@ export class TelepresenceManager {
             
             session.status = 'error';
             session.error = error instanceof Error ? error.message : String(error);
-            this.sessions.set(sessionId, session);
-            TelepresenceOutput.appendLine(`📊 Session updated with error: ${JSON.stringify(session)}`);
-            
+            TelepresenceOutput.appendLine(`📊 Session temporary error state: ${JSON.stringify(session)}`);
+
             TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
             TelepresenceOutput.appendLine(`❌ FAILURE: interceptTraffic failed`);
             TelepresenceOutput.appendLine(`📊 Total execution time: ${totalDuration}ms`);
@@ -576,8 +935,18 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Failed deployment: "${deployment}"`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
-            
+
+            if (this.sessions.has(sessionId)) {
+                TelepresenceOutput.appendLine(`🧹 Removing temporary interception panel for failed session "${sessionId}"`);
+                this.sessions.delete(sessionId);
+                this.notifySessionsChanged();
+            }
+
             throw error;
+        } finally {
+            if (suspendedByOperation) {
+                this.resumeStatusUpdates();
+            }
         }
     }
     
@@ -640,6 +1009,13 @@ export class TelepresenceManager {
         this.sessions.set(sessionId, session);
         TelepresenceOutput.appendLine(`📊 New status: "${session.status}"`);
         TelepresenceOutput.appendLine(`✅ Session state updated`);
+
+        this.notifySessionsChanged();
+
+        const wasStatusUpdatesSuspended = this.areStatusUpdatesSuspended();
+        if (!wasStatusUpdatesSuspended) {
+            this.suspendStatusUpdates(`disconnectInterception:${sessionId}`);
+        }
     
         try {
             // STEP 3: Terminating replace process
@@ -769,6 +1145,8 @@ export class TelepresenceManager {
             } else {
                 TelepresenceOutput.appendLine(`📊 No remaining sessions`);
             }
+
+            this.notifySessionsChanged();
             
             // SUCCESS
             const totalDuration = Date.now() - startTime;
@@ -782,6 +1160,7 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Local port: ${session.localPort}`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
+            await this.refreshStatusSnapshot({ trigger: `disconnectInterception:${sessionId}`, allowQueue: false });
     
         } catch (error) {
             const totalDuration = Date.now() - startTime;
@@ -800,6 +1179,8 @@ export class TelepresenceManager {
             session.error = error instanceof Error ? error.message : String(error);
             this.sessions.set(sessionId, session);
             TelepresenceOutput.appendLine(`📊 Session updated with error status: ${JSON.stringify(session)}`);
+
+            this.notifySessionsChanged();
             
             TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
             TelepresenceOutput.appendLine(`❌ FAILURE: disconnectInterception failed`);
@@ -810,6 +1191,10 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
     
             throw error;
+        } finally {
+            if (!wasStatusUpdatesSuspended) {
+                this.resumeStatusUpdates();
+            }
         }
     }
 
@@ -847,6 +1232,8 @@ export class TelepresenceManager {
         } catch (cleanupError) {
             TelepresenceOutput.appendLine(`⚠️ Cleanup failed: ${cleanupError}`);
         }
+
+        await this.refreshStatusSnapshot({ trigger: 'disconnectAllInterceptions', allowQueue: false });
     }
 
     async disconnectSession(sessionId: string): Promise<void> {
@@ -1136,6 +1523,8 @@ export class TelepresenceManager {
                     TelepresenceOutput.appendLine(`  ${index + 1}. ${session.id} (${session.originalService}) - Status: ${session.status}`);
                 });
             }
+
+            this.notifySessionsChanged();
             
             // Verificar status basado en estado real, no solo daemon
             let connectionStatus = 'disconnected';
@@ -1312,26 +1701,24 @@ export class TelepresenceManager {
                 }
                 
                 if (connectedNamespace && connectedNamespace !== 'default' && connectedNamespace !== 'ambassador') {
-                    // Update internal state
-                    this.namespaceConnection = {
+                    this.updateNamespaceConnection({
                         namespace: connectedNamespace,
                         status: 'connected',
                         startTime: new Date()
-                    };
-                    
+                    });
                     TelepresenceOutput.appendLine(`✅ Detected existing connection to namespace: ${connectedNamespace}`);
                 } else {
                     TelepresenceOutput.appendLine(`📋 Connected but namespace is '${connectedNamespace}' - ignoring`);
-                    this.namespaceConnection = null;
+                    this.updateNamespaceConnection(null);
                 }
             } else {
                 // No hay conexión
-                this.namespaceConnection = null;
+                this.updateNamespaceConnection(null);
                 TelepresenceOutput.appendLine(`📋 No telepresence connection detected`);
             }
         } catch (error) {
             // Error ejecutando comando o no hay conexión
-            this.namespaceConnection = null;
+            this.updateNamespaceConnection(null);
             TelepresenceOutput.appendLine(`📋 No telepresence connection found: ${error}`);
         }
     }

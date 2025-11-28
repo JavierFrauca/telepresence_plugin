@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TelepresenceManager, TelepresenceSession, TelepresenceInterception } from './telepresenceManager';
 import { KubernetesManager } from './kubernetesManager';
+import { i18n } from './i18n/localizationManager';
 
 /**
  * Provider para las 3 vistas del Activity Bar:
@@ -55,6 +56,30 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
                     'plug'
                 ));
             }
+
+            items.push(new NamespaceTreeItem(
+                i18n.localize('activityBar.namespaces.refresh', '🔄 Refresh Namespaces'),
+                vscode.TreeItemCollapsibleState.None,
+                'refresh-namespaces',
+                'refresh'
+            ));
+
+            const cachedNamespaces = this.telepresenceManager.getCachedNamespaces();
+            const cachedLabel = i18n.localize(
+                'activityBar.namespaces.cachedCount',
+                'Cached namespaces: {0}',
+                cachedNamespaces.length
+            );
+            const cachedItem = new NamespaceTreeItem(
+                cachedLabel,
+                vscode.TreeItemCollapsibleState.None,
+                'namespaces-info',
+                'symbol-number'
+            );
+            cachedItem.tooltip = cachedNamespaces.length > 0
+                ? cachedNamespaces.join(', ')
+                : i18n.localize('activityBar.namespaces.cachedEmpty', 'No cached namespaces');
+            items.push(cachedItem);
 
             // Current context
             try {
@@ -139,6 +164,11 @@ export class NamespaceTreeItem extends vscode.TreeItem {
                 command: 'telepresence.disconnectNamespace',
                 title: 'Disconnect from Namespace'
             };
+        } else if (contextValue === 'refresh-namespaces') {
+            this.command = {
+                command: 'telepresence.refreshNamespaces',
+                title: label
+            };
         }
     }
 }
@@ -195,12 +225,14 @@ export class InterceptionsTreeProvider implements vscode.TreeDataProvider<Interc
                     this.getSessionIcon(session.status),
                     session
                 );
-                
-                item.description = `${session.namespace}:${session.localPort}`;
+
+                item.description = session.status === 'connecting'
+                    ? i18n.localize('activityBar.interceptions.status.intercepting', 'Intercepting…')
+                    : `${session.namespace}:${session.localPort}`;
                 item.tooltip = `${session.originalService} in ${session.namespace}\n` +
                             `Local Port: ${session.localPort}\n` +
                             `Status: ${session.status}`;
-                
+
                 return item;
             });
         }
@@ -238,13 +270,18 @@ export class InterceptionsTreeProvider implements vscode.TreeDataProvider<Interc
         return [];
     }
 
-    private getSessionIcon(status: string): string {
+    private getSessionIcon(status: string): vscode.ThemeIcon {
         switch (status) {
-            case 'connected': return 'debug-start';
-            case 'connecting': return 'loading';
-            case 'disconnecting': return 'debug-stop';
-            case 'error': return 'error';
-            default: return 'circle-outline';
+            case 'connected':
+                return new vscode.ThemeIcon('debug-start');
+            case 'connecting':
+                return new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.yellow'));
+            case 'disconnecting':
+                return new vscode.ThemeIcon('debug-stop', new vscode.ThemeColor('charts.orange'));
+            case 'error':
+                return new vscode.ThemeIcon('error', new vscode.ThemeColor('testing.iconFailed'));
+            default:
+                return new vscode.ThemeIcon('circle-outline');
         }
     }
 }
@@ -254,15 +291,15 @@ export class InterceptionTreeItem extends vscode.TreeItem {
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly contextValue: string,
-        public readonly iconName?: string,
+        public readonly icon?: string | vscode.ThemeIcon,
         public readonly session?: TelepresenceSession
     ) {
         super(label, collapsibleState);
         
         this.contextValue = contextValue;
-        
-        if (iconName) {
-            this.iconPath = new vscode.ThemeIcon(iconName);
+
+        if (icon) {
+            this.iconPath = typeof icon === 'string' ? new vscode.ThemeIcon(icon) : icon;
         }
 
         // Set commands for actionable items
@@ -304,231 +341,221 @@ export class StatusTreeProvider implements vscode.TreeDataProvider<StatusTreeIte
 
     async getChildren(element?: StatusTreeItem): Promise<StatusTreeItem[]> {
         if (!element) {
-            const items: StatusTreeItem[] = [];
-            
-            try {
-                // Obtener estado de telepresence
-                const status = await this.telepresenceManager.getFormattedTelepresenceStatus();
-                this.lastStatus = status;
-                
-                // Daemon status
-                items.push(new StatusTreeItem(
-                    `Daemon: ${status.daemonStatus}`,
-                    vscode.TreeItemCollapsibleState.None,
-                    'daemon-status',
-                    this.getDaemonIcon(status.daemonStatus)
-                ));
-
-                // Connection status
-                items.push(new StatusTreeItem(
-                    `Connection: ${status.connectionStatus}`,
-                    vscode.TreeItemCollapsibleState.None,
-                    'connection-status',
-                    this.getConnectionIcon(status.connectionStatus)
-                ));
-
-                // Interceptions summary
-                if (status.interceptions && status.interceptions.length > 0) {
-                    const interceptedCount = status.interceptions.filter(i => i.status === 'intercepted').length;
-                    const availableCount = status.interceptions.filter(i => i.status === 'available').length;
-                    
-                    items.push(new StatusTreeItem(
-                        `Intercepted: ${interceptedCount}`,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        'intercepted-list',
-                        'debug-start'
-                    ));
-
-                    if (availableCount > 0) {
-                        items.push(new StatusTreeItem(
-                            `Available: ${availableCount}`,
-                            vscode.TreeItemCollapsibleState.Collapsed,
-                            'available-list',
-                            'circle-outline'
-                        ));
-                    }
-                } else {
-                    items.push(new StatusTreeItem(
-                        'No deployments found',
-                        vscode.TreeItemCollapsibleState.None,
-                        'no-deployments',
-                        'circle-slash'
-                    ));
-                }
-
-                // Last update
-                items.push(new StatusTreeItem(
-                    `Updated: ${status.timestamp}`,
-                    vscode.TreeItemCollapsibleState.None,
-                    'timestamp',
-                    'clock'
-                ));
-
-                return items;
-
-            } catch (error) {
-                return [new StatusTreeItem(
-                    'Error getting status',
-                    vscode.TreeItemCollapsibleState.None,
-                    'error',
-                    'error'
-                )];
-            }
+            return this.buildRootStatusItems();
         }
 
-        // Expandir listas de intercepted/available
-        if (element && (element.contextValue === 'intercepted-list' || element.contextValue === 'available-list')) {
+        if (element.contextValue === 'intercepted-list' || element.contextValue === 'available-list') {
+            return this.buildInterceptionItems(element);
+        }
+
+        if (element.contextValue === 'deployment-item') {
+            return this.buildPodItems(element);
+        }
+
+        return [];
+    }
+
+    private async buildRootStatusItems(): Promise<StatusTreeItem[]> {
+        const items: StatusTreeItem[] = [];
+
+        let statusSnapshot = this.telepresenceManager.getCachedStatusSnapshot();
+        if (!statusSnapshot) {
+            statusSnapshot = await this.telepresenceManager.refreshStatusSnapshot({
+                trigger: 'statusTreeProvider',
+                allowQueue: false
+            }) ?? this.telepresenceManager.getCachedStatusSnapshot();
+        }
+
+        if (!statusSnapshot) {
+            return [new StatusTreeItem(
+                'Status not available',
+                vscode.TreeItemCollapsibleState.None,
+                'no-status',
+                'warning'
+            )];
+        }
+
+        this.lastStatus = statusSnapshot;
+        const refreshMeta = this.telepresenceManager.getStatusRefreshMetadata();
+
+        items.push(new StatusTreeItem(
+            `Daemon: ${statusSnapshot.daemonStatus}`,
+            vscode.TreeItemCollapsibleState.None,
+            'daemon-status',
+            this.getDaemonIcon(statusSnapshot.daemonStatus)
+        ));
+
+        items.push(new StatusTreeItem(
+            `Connection: ${statusSnapshot.connectionStatus}`,
+            vscode.TreeItemCollapsibleState.None,
+            'connection-status',
+            this.getConnectionIcon(statusSnapshot.connectionStatus)
+        ));
+
+        const autoRefreshEnabled = refreshMeta.autoRefreshEnabled && !refreshMeta.manualOnly;
+        const refreshLabel = autoRefreshEnabled
+            ? `Auto-refresh: every ${refreshMeta.autoRefreshInterval}s`
+            : 'Auto-refresh: Manual';
+        items.push(new StatusTreeItem(
+            refreshLabel,
+            vscode.TreeItemCollapsibleState.None,
+            'auto-refresh-info',
+            autoRefreshEnabled ? 'sync' : 'plug'
+        ));
+
+        if (refreshMeta.inProgress) {
+            items.push(new StatusTreeItem(
+                'Refreshing status…',
+                vscode.TreeItemCollapsibleState.None,
+                'refreshing',
+                'sync~spin'
+            ));
+        } else {
+            const lastRunTime = refreshMeta.lastRunCompletedAt
+                ? new Date(refreshMeta.lastRunCompletedAt).toLocaleTimeString()
+                : statusSnapshot.timestamp;
+            const duration = refreshMeta.lastDurationMs ?? 0;
+            items.push(new StatusTreeItem(
+                `Updated: ${lastRunTime}${duration ? ` (${duration} ms)` : ''}`,
+                vscode.TreeItemCollapsibleState.None,
+                'last-update',
+                'clock'
+            ));
+        }
+
+        if (refreshMeta.lastError) {
+            items.push(new StatusTreeItem(
+                `Last error: ${refreshMeta.lastError}`,
+                vscode.TreeItemCollapsibleState.None,
+                'last-error',
+                'error'
+            ));
+        }
+
+        if (statusSnapshot.interceptions && statusSnapshot.interceptions.length > 0) {
+            const interceptedCount = statusSnapshot.interceptions.filter(i => i.status === 'intercepted').length;
+            const availableCount = statusSnapshot.interceptions.filter(i => i.status === 'available').length;
+
+            items.push(new StatusTreeItem(
+                `Intercepted: ${interceptedCount}`,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                'intercepted-list',
+                'debug-start'
+            ));
+
+            if (availableCount > 0) {
+                items.push(new StatusTreeItem(
+                    `Available: ${availableCount}`,
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'available-list',
+                    'circle-outline'
+                ));
+            }
+        } else {
+            items.push(new StatusTreeItem(
+                'No deployments found',
+                vscode.TreeItemCollapsibleState.None,
+                'no-deployments',
+                'circle-slash'
+            ));
+        }
+
+        return items;
+    }
+
+    private buildInterceptionItems(element: StatusTreeItem): StatusTreeItem[] {
             if (!this.lastStatus || !this.lastStatus.interceptions) {
                 return [];
             }
 
-            const targetStatus = element.contextValue === 'intercepted-list' ? 'intercepted' : 'available';
-            const filtered = this.lastStatus.interceptions.filter((i: any) => i.status === targetStatus);
-            const connectedNamespace = this.telepresenceManager.getConnectedNamespace();
-            
-            // Carga única de deployments y pods para todo el namespace
-            let deploymentsList: Array<{ name: string; namespace: string; replicas: string; available: string; age: string }> = [];
-            let podsList: Array<{ name: string; ready: string; status: string; restarts: string; age: string; deployment: string }> = [];
-            
-            if (connectedNamespace && targetStatus === 'available') {
-                try {
-                    const kubernetesManager = new KubernetesManager();
-                    
-                    // Obtener deployments
-                    const deployStdout = await kubernetesManager.executeCommand(`kubectl get deployments -n ${connectedNamespace}`);
-                    const deployLines = deployStdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
-                    for (const line of deployLines) {
-                        const cols = line.trim().split(/\s+/);
-                        if (cols.length >= 5) {
-                            const [name, ready, upToDate, available, age] = cols;
-                            deploymentsList.push({ 
-                                name, 
-                                namespace: connectedNamespace, 
-                                replicas: ready, 
-                                available, 
-                                age 
-                            });
-                        }
-                    }
-                    
-                    // Obtener pods
-                    const podsStdout = await kubernetesManager.executeCommand(`kubectl get pods -n ${connectedNamespace}`);
-                    const podLines = podsStdout.split('\n').slice(1).filter((l: string) => l.trim().length > 0);
-                    for (const line of podLines) {
-                        const cols = line.trim().split(/\s+/);
-                        if (cols.length >= 5) {
-                            const [name, ready, status, restarts, age] = cols;
-                            // Extraer deployment del nombre del pod - mejorado para capturar más patrones
-                            let deployment = 'unknown';
-                            
-                            // Patrón estándar: deployment-hash-podid
-                            const standardMatch = name.match(/^([a-zA-Z0-9-]+)-[a-f0-9]+-[a-z0-9]+$/);
-                            if (standardMatch) {
-                                deployment = standardMatch[1];
-                            } else {
-                                // Patrón con "deploy" en el nombre
-                                const deployMatch = name.match(/^([a-zA-Z0-9-]+-deploy)/);
-                                if (deployMatch) {
-                                    deployment = deployMatch[1];
-                                } else {
-                                    // Patrón general: tomar todo antes del último guión seguido de caracteres alfanuméricos
-                                    const generalMatch = name.match(/^(.+)-[a-z0-9]+$/);
-                                    if (generalMatch) {
-                                        deployment = generalMatch[1];
-                                    }
-                                }
-                            }
-                            
-                            podsList.push({ name, ready, status, restarts, age, deployment });
-                        }
-                    }
-                } catch (err) {
-                    // Error loading deployments/pods, omit verbose log
+        const targetStatus = element.contextValue === 'intercepted-list' ? 'intercepted' : 'available';
+        const filtered = this.lastStatus.interceptions.filter((i: TelepresenceInterception) => i.status === targetStatus);
+        const namespaceResources = this.lastStatus.namespaceResources as {
+            deployments?: Array<{ name: string; namespace: string; replicas: string; available: string; age: string }>;
+            pods?: Array<{ name: string; ready: string; status: string; restarts: string; age: string; deployment: string }>;
+        } | undefined;
+
+        const deploymentsList = namespaceResources?.deployments ?? [];
+        const podsList = namespaceResources?.pods ?? [];
+
+        return filtered.map((interception: TelepresenceInterception) => {
+            const namespace = this.telepresenceManager.getConnectedNamespace() || interception.namespace || 'default';
+            const collapsibleState = targetStatus === 'intercepted'
+                ? vscode.TreeItemCollapsibleState.None
+                : vscode.TreeItemCollapsibleState.Collapsed;
+            const deploymentInfo = deploymentsList.find((deploymentEntry) => deploymentEntry.name === interception.deployment);
+            const associatedPods = targetStatus === 'available'
+                ? podsList.filter((podEntry) => podEntry.deployment === interception.deployment)
+                : [];
+
+            const item = new StatusTreeItem(
+                interception.deployment,
+                collapsibleState,
+                'deployment-item',
+                targetStatus === 'intercepted' ? 'debug-start' : 'circle-outline',
+                {
+                    deployment: interception.deployment,
+                    namespace: namespace,
+                    status: interception.status,
+                    localPort: interception.localPort,
+                    clusterIP: interception.clusterIP,
+                    isIntercepted: targetStatus === 'intercepted',
+                    deploymentInfo,
+                    associatedPods
                 }
-            }
+            );
 
-            return filtered.map((interception: any) => {
-                const namespace = this.telepresenceManager.getConnectedNamespace() || interception.namespace || 'default';
-                
-                // Para deployments interceptados, no cargar pods (están interceptados)
-                const collapsibleState = targetStatus === 'intercepted' ? 
-                    vscode.TreeItemCollapsibleState.None : 
-                    vscode.TreeItemCollapsibleState.Collapsed;
-                
-                // Buscar información adicional del deployment si está disponible
-                const deploymentInfo = deploymentsList.find(d => d.name === interception.deployment);
-                
-                const item = new StatusTreeItem(
-                    interception.deployment,
-                    collapsibleState,
-                    'deployment-item',
-                    targetStatus === 'intercepted' ? 'debug-start' : 'circle-outline',
-                    {
-                        deployment: interception.deployment,
-                        namespace: namespace,
-                        status: interception.status,
-                        localPort: interception.localPort,
-                        clusterIP: interception.clusterIP,
-                        isIntercepted: targetStatus === 'intercepted',
-                        deploymentInfo: deploymentInfo,
-                        associatedPods: targetStatus === 'available' ? 
-                            podsList.filter(p => p.deployment === interception.deployment) : []
-                    }
-                );
-                // Asignar propiedades directamente al tree item
-                item.namespace = namespace;
-                item.deployment = interception.deployment;
-                item.description = '';
-                
-                // No añadir comandos de acción por item, solo globales en el Activity Bar
-                item.command = undefined;
-                
-                return item;
-            });
+            item.namespace = namespace;
+            item.deployment = interception.deployment;
+            item.description = '';
+            item.command = undefined;
+
+            return item;
+        });
+    }
+
+    private buildPodItems(element: StatusTreeItem): StatusTreeItem[] {
+        if (!element.interception) {
+            return [];
         }
 
-        // Mostrar pods bajo cada deployment
-        if (element && element.contextValue === 'deployment-item' && element.interception) {
-            // Solo mostrar pods si NO es un deployment interceptado
-            const interceptionData = element.interception as any;
-            if (interceptionData.isIntercepted) {
-                return []; // No mostrar pods para deployments interceptados
-            }
-            
-            const pods: StatusTreeItem[] = [];
-            const podList = interceptionData.associatedPods || [];
-            const namespace = this.telepresenceManager.getConnectedNamespace() || interceptionData.namespace || element.namespace || 'default';
-            const deployment = interceptionData.deployment;
-            
-            for (const pod of podList) {
-                const podItem = new StatusTreeItem(
-                    pod.name,
-                    vscode.TreeItemCollapsibleState.None,
-                    'pod-item',
-                    pod.status === 'Running' ? 'debug-start' : 'circle-slash',
-                    {
-                        deployment: deployment,
-                        namespace: namespace,
-                        podName: pod.name,
-                        status: pod.status,
-                        age: pod.age,
-                        restarts: pod.restarts,
-                        ready: pod.ready
-                    }
-                );
-                
-                // Recordar datos en el item del pod
-                podItem.namespace = namespace;
-                podItem.deployment = deployment;
-                podItem.podName = pod.name;
-                podItem.description = `${pod.status} (${pod.restarts} restarts)`;
-                
-                pods.push(podItem);
-            }
-            return pods;
+        const interceptionData = element.interception as any;
+        if (interceptionData.isIntercepted) {
+            return [];
         }
 
-        return [];
+        const pods: StatusTreeItem[] = [];
+        const podList = interceptionData.associatedPods || [];
+        const namespace = this.telepresenceManager.getConnectedNamespace() || interceptionData.namespace || element.namespace || 'default';
+        const deployment = interceptionData.deployment;
+
+        for (const pod of podList) {
+            const podItem = new StatusTreeItem(
+                pod.name,
+                vscode.TreeItemCollapsibleState.None,
+                'pod-item',
+                pod.status === 'Running' ? 'debug-start' : 'circle-slash',
+                {
+                    deployment: deployment,
+                    namespace: namespace,
+                    podName: pod.name,
+                    status: pod.status,
+                    age: pod.age,
+                    restarts: pod.restarts,
+                    ready: pod.ready
+                }
+            );
+
+            podItem.namespace = namespace;
+            podItem.deployment = deployment;
+            podItem.podName = pod.name;
+            podItem.description = `${pod.status} (${pod.restarts} restarts)`;
+            podItem.command = undefined;
+
+            pods.push(podItem);
+        }
+
+        return pods;
     }
 
     private getDaemonIcon(status: string): string {
@@ -699,9 +726,16 @@ export function registerActivityBarCommands(
 
         // Si no tenemos deployment, usar fallback
         if (!deploymentName) {
-            // Fallback: obtener deployments disponibles del status actual
-            const status = await telepresenceManager.getFormattedTelepresenceStatus();
-            const availableDeployments = status.interceptions?.map((i: any) => i.deployment) || [];
+            // Fallback: obtener deployments disponibles del snapshot en caché
+            let statusSnapshot = telepresenceManager.getCachedStatusSnapshot();
+            if (!statusSnapshot) {
+                statusSnapshot = await telepresenceManager.refreshStatusSnapshot({
+                    trigger: 'scaleDeploymentPrompt',
+                    allowQueue: true
+                }) ?? telepresenceManager.getCachedStatusSnapshot();
+            }
+
+            const availableDeployments = statusSnapshot?.interceptions?.map((i: any) => i.deployment) ?? [];
             
             if (availableDeployments.length === 0) {
                 vscode.window.showErrorMessage('Error: No hay deployments disponibles.');
@@ -752,9 +786,15 @@ export function registerActivityBarCommands(
         if (treeItem && treeItem.contextValue === 'deployment-item' && treeItem.deployment) {
             deploymentName = treeItem.deployment;
         } else {
-            // Obtener deployments disponibles del status actual
-            const status = await telepresenceManager.getFormattedTelepresenceStatus();
-            const availableDeployments = status.interceptions?.map((i: any) => i.deployment) || [];
+            let statusSnapshot = telepresenceManager.getCachedStatusSnapshot();
+            if (!statusSnapshot) {
+                statusSnapshot = await telepresenceManager.refreshStatusSnapshot({
+                    trigger: 'restartDeploymentPrompt',
+                    allowQueue: true
+                }) ?? telepresenceManager.getCachedStatusSnapshot();
+            }
+
+            const availableDeployments = statusSnapshot?.interceptions?.map((i: any) => i.deployment) ?? [];
             
             if (availableDeployments.length === 0) {
                 vscode.window.showErrorMessage('Error: No hay deployments disponibles.');

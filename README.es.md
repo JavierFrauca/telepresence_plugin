@@ -7,6 +7,8 @@ Esta extensión integra la potencia de Telepresence directamente en Visual Studi
 ## Características Principales
 
 - **Auto-refresh configurable**: Actualización automática de estado, deployments e intercepciones según el intervalo definido en la configuración.
+- **Modo manual de actualización**: Configura el ajuste `telepresence.autoRefreshInterval` en `0` para desactivar el refresco automático y actualizar el estado desde la barra de actividades o el botón "🔄 Refresh Status" solo cuando lo necesites.
+- **Botón de limpieza forzada**: Desde la vista de namespaces puedes ejecutar `telepresence quit -s` con un clic para cerrar sesiones atascadas antes de volver a conectar.
 - **Paneles dedicados en la barra de actividades**: Vistas separadas para espacios de nombres, intercepciones, deployments y estado del sistema.
 - **Gestión de deployments**:
   - Escalado de deployments (cambiar el número de réplicas) directamente desde la interfaz.
@@ -43,6 +45,13 @@ Esta extensión integra la potencia de Telepresence directamente en Visual Studi
    - Intercept el tráfico de un microservicio (paso 2)
    - Monitoriza el estado de Telepresence y las intercepciones activas
 4. Utiliza las vistas de la barra de actividades para un acceso rápido a las funciones principales.
+5. Si Telepresence queda en un estado inconsistente, ejecuta el comando `Telepresence: Force Quit Telepresence` (o el botón correspondiente en la vista de namespaces) para correr `telepresence quit -s` y limpiar sesiones previas antes de reconectar.
+
+### Modos de actualización de estado
+
+- El ajuste `telepresence.autoRefreshInterval` define cada cuántos segundos se actualiza el servicio compartido de estado (por defecto 20 segundos).
+- Si lo configuras en `0`, la extensión entra en modo manual: no habrá sondeos en segundo plano y podrás refrescar el estado desde la vista de estado de la barra de actividades o desde el botón "🔄 Refresh Status" del panel.
+- Al compartir la misma instantánea en caché, un único refresco manual actualiza todas las superficies (webview, Activity Bar y árbol de estado) sin ejecutar comandos duplicados de Telepresence.
 
 ## Requisitos
 
@@ -54,6 +63,25 @@ Esta extensión integra la potencia de Telepresence directamente en Visual Studi
 ## Documentación Adicional
 
 Para obtener más información sobre cómo funciona Telepresence, consulta la [documentación oficial de Telepresence](https://www.telepresence.io/docs/latest/).
+
+## Empaquetado y distribución
+
+1. Instala la herramienta oficial de empaquetado de VS Code (solo una vez):
+  ```bash
+  npm install -g @vscode/vsce
+  ```
+2. Desde la raíz del proyecto (`c:\repo\telepresence_plugin`) genera el `.vsix`:
+  ```bash
+  vsce package
+  ```
+  Este comando ejecuta `npm run vscode:prepublish` automáticamente y crea `telepresence-gui-<versión>.vsix` en la misma carpeta.
+3. Instala el paquete generado desde VS Code con **Extensiones → … → Instalar desde VSIX…** o vía CLI:
+  ```bash
+  code --install-extension telepresence-gui-<versión>.vsix
+  ```
+4. Opcionales útiles:
+  - `vsce ls` muestra qué archivos se incluirán antes de empaquetar.
+  - `vsce publish` sube la extensión al Marketplace (requiere un token del publicador).
 
 ## Licencia
 

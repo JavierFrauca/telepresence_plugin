@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TelepresenceManager } from './telepresenceManager';
+import { TelepresenceManager, TelepresenceStatusSnapshot } from './telepresenceManager';
 import { WebviewMessageHandler } from './webview/messageHandler';
 import { WebviewHtmlGenerator } from './webview/assets/gui/htmlGUI';
 import { KubernetesManager } from './kubernetesManager';
@@ -14,6 +14,7 @@ import { ErrorMessage } from './webview/types';
 export class TelepresenceWebviewProvider {
     private messageHandler: WebviewMessageHandler;
     private htmlGenerator: WebviewHtmlGenerator;
+    private activeWebviews: Set<vscode.Webview> = new Set();
 
     constructor(
         private readonly extensionUri: vscode.Uri,
@@ -25,10 +26,61 @@ export class TelepresenceWebviewProvider {
     }
 
     /**
+     * Registers a new webview panel and configures lifecycle hooks
+     */
+    public registerPanel(panel: vscode.WebviewPanel): void {
+        this.activeWebviews.add(panel.webview);
+        panel.onDidDispose(() => {
+            this.activeWebviews.delete(panel.webview);
+        });
+
+        this.setupWebview(panel.webview);
+    }
+
+    /**
+     * Broadcasts namespace updates to all active webviews
+     */
+    public broadcastNamespaces(namespaces: string[]): void {
+        if (this.activeWebviews.size === 0) {
+            return;
+        }
+
+        const payload = {
+            type: 'namespacesUpdate',
+            namespaces,
+            trigger: 'sync'
+        } as const;
+
+        this.activeWebviews.forEach((webview) => {
+            try {
+                webview.postMessage(payload);
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                TelepresenceOutput.appendLine(`[Telepresence] Error broadcasting namespaces: ${errorMessage}`);
+            }
+        });
+    }
+
+    public async broadcastStatus(snapshot?: TelepresenceStatusSnapshot | null): Promise<void> {
+        if (this.activeWebviews.size === 0) {
+            return;
+        }
+
+        for (const webview of Array.from(this.activeWebviews)) {
+            try {
+                await this.messageHandler.pushTelepresenceStatus(webview, snapshot);
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                TelepresenceOutput.appendLine(`[Telepresence] Error broadcasting status: ${errorMessage}`);
+            }
+        }
+    }
+
+    /**
      * Sets up and initializes the webview
      * @param webview - VS Code webview instance
      */
-    public setupWebview(webview: vscode.Webview): void {
+    private setupWebview(webview: vscode.Webview): void {
         try {
             // Configure webview options
             webview.options = {

@@ -67,6 +67,9 @@
                         </div>
                     </div>
                     <div class="button-group">
+                        <button type="button" class="btn btn-secondary" id="refresh-namespaces-btn" data-l10n="webview.panel.namespace.refresh">
+                            🔄 Refresh
+                        </button>
                         <button type="submit" class="btn btn-primary" id="connect-namespace-btn">
                             <span id="connect-namespace-text" data-l10n="webview.panel.namespace.connect">🔌 Connect</span>
                             <span id="connect-namespace-loading" class="loading" style="display: none;"></span>
@@ -114,8 +117,9 @@
             <div class="panel">
                 <h2 data-l10n="webview.panel.status.title">📊 Telepresence Status</h2>
                 <div class="status-header">
-                    <button class="btn btn-secondary" id="refresh-telepresence-status-btn" data-l10n="webview.panel.status.refresh">
-                        🔄 Refresh Status
+                    <button class="btn btn-secondary" id="refresh-telepresence-status-btn">
+                        <span id="refresh-status-text" data-l10n="webview.panel.status.refresh">🔄 Refresh Status</span>
+                        <span id="refresh-status-loading" class="loading" style="display: none;"></span>
                     </button>
                     <div>
                         <span class="daemon-status" id="daemon-status" data-l10n="webview.panel.status.unknown">Unknown</span>
@@ -183,6 +187,7 @@
                     'connection.status.disconnected': 'Disconnected',
                     'webview.panel.namespace.label': 'Namespace:',
                     'webview.panel.namespace.placeholder': 'Select a namespace',
+                    'webview.panel.namespace.refresh': '🔄 Refresh',
                     'webview.panel.namespace.connect': '🔌 Connect',
                     'webview.panel.namespace.disconnect': '🔌 Disconnect',
                     'webview.panel.intercept.title': '🎯 Step 2: Traffic Interception',
@@ -222,6 +227,7 @@
                     'connection.status.disconnected': 'Desconectado',
                     'webview.panel.namespace.label': 'Namespace:',
                     'webview.panel.namespace.placeholder': 'Selecciona un namespace',
+                    'webview.panel.namespace.refresh': '🔄 Actualizar',
                     'webview.panel.namespace.connect': '🔌 Conectar',
                     'webview.panel.namespace.disconnect': '🔌 Desconectar',
                     'webview.panel.intercept.title': '🎯 Paso 2: Intercepción de Tráfico',

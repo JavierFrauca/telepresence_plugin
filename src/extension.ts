@@ -17,31 +17,11 @@ import { ThrottleUtility } from './utils/throttleUtility';
 import { I18nAuditor } from './utils/i18nAuditor';
 
 export function activate(context: vscode.ExtensionContext) {
-    // Auto-refresh para status, deployments y interceptions usando el intervalo de settings
+    // Auto-refresh únicamente del estado de telepresence y solo cuando hay conexión activa
     const config = vscode.workspace.getConfiguration('telepresence');
-    let autoRefreshInterval = config.get<number>('autoRefreshInterval') || 10; // segundos
-    if (typeof autoRefreshInterval !== 'number' || isNaN(autoRefreshInterval) || autoRefreshInterval < 1) {
-        autoRefreshInterval = 10;
-    }
-    let autoRefreshTimeoutId: NodeJS.Timeout | undefined;
-
-    async function autoRefreshTick() {
-        if (telepresenceManager.isConnectedToNamespace()) {
-            // Si alguna refresh es async, esperar a que terminen todas
-            await Promise.all([
-                Promise.resolve(statusProvider.refresh()),
-                Promise.resolve(treeProvider.refresh()),
-                Promise.resolve(interceptionsProvider.refresh())
-            ]);
-        }
-        autoRefreshTimeoutId = setTimeout(autoRefreshTick, autoRefreshInterval * 1000);
-    }
-
-    function startAutoRefresh() {
-        if (autoRefreshTimeoutId) {
-            clearTimeout(autoRefreshTimeoutId);
-        }
-        autoRefreshTimeoutId = setTimeout(autoRefreshTick, autoRefreshInterval * 1000);
+    let statusRefreshInterval = config.get<number>('autoRefreshInterval') ?? 20; // segundos (default 20)
+    if (typeof statusRefreshInterval !== 'number' || isNaN(statusRefreshInterval) || statusRefreshInterval < 0) {
+        statusRefreshInterval = 20;
     }
     
     // Initialize the localization manager
@@ -55,6 +35,8 @@ export function activate(context: vscode.ExtensionContext) {
     const telepresenceManager = new TelepresenceManager(context.workspaceState);
     const kubernetesManager = new KubernetesManager();
     const webviewProvider = new TelepresenceWebviewProvider(context.extensionUri, telepresenceManager, kubernetesManager);
+
+    telepresenceManager.setStatusAutoRefreshInterval(statusRefreshInterval);
     
     // Tree Providers para el Activity Bar - 3 vistas específicas
     const treeProvider = new TelepresenceTreeProvider(telepresenceManager, kubernetesManager);
@@ -62,28 +44,75 @@ export function activate(context: vscode.ExtensionContext) {
     const interceptionsProvider = new InterceptionsTreeProvider(telepresenceManager);
     const statusProvider = new StatusTreeProvider(telepresenceManager);
 
-    // Iniciar el auto-refresh inicial
-    startAutoRefresh();
-    context.subscriptions.push({
-        dispose: () => {
-            if (autoRefreshTimeoutId) {
-                clearTimeout(autoRefreshTimeoutId);
+    const handleSessionsChanged = async () => {
+        treeProvider.refresh();
+        namespaceProvider.refresh();
+        interceptionsProvider.refresh();
+        statusProvider.refresh();
+        await webviewProvider.broadcastStatus(telepresenceManager.getCachedStatusSnapshot());
+    };
+
+    context.subscriptions.push(
+        telepresenceManager.onSessionsChanged(() => {
+            handleSessionsChanged().catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                TelepresenceOutput.appendLine(`⚠️ Could not sync session updates: ${message}`);
+            });
+        })
+    );
+
+    context.subscriptions.push(
+        telepresenceManager.onNamespacesChanged((namespaces) => {
+            namespaceProvider.refresh();
+            webviewProvider.broadcastNamespaces(namespaces);
+        })
+    );
+
+    context.subscriptions.push(
+        telepresenceManager.onNamespaceConnectionChanged((connectionState) => {
+            statusProvider.refresh();
+            namespaceProvider.refresh();
+            interceptionsProvider.refresh();
+            treeProvider.refresh();
+            webviewProvider.broadcastStatus(telepresenceManager.getCachedStatusSnapshot());
+        })
+    );
+
+    context.subscriptions.push(
+        telepresenceManager.onStatusUpdatesSuspendedChanged(({ suspended }) => {
+            statusProvider.refresh();
+            if (!suspended) {
+                telepresenceManager.refreshStatusSnapshot({ trigger: 'statusUpdatesResumed' }).catch((error) => {
+                    TelepresenceOutput.appendLine(`⚠️ Could not refresh status after resume: ${error}`);
+                });
             }
-        },
+        })
+    );
+
+    context.subscriptions.push(
+        telepresenceManager.onStatusSnapshotChanged((snapshot) => {
+            statusProvider.refresh();
+            webviewProvider.broadcastStatus(snapshot);
+        })
+    );
+
+    telepresenceManager.refreshNamespaces().catch((error: unknown) => {
+        TelepresenceOutput.appendLine(`⚠️ Could not preload namespaces: ${error}`);
     });
 
     // Escuchar cambios en la configuración para actualizar el intervalo dinámicamente
-    vscode.workspace.onDidChangeConfiguration((e) => {
+    const configurationDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('telepresence.autoRefreshInterval')) {
             const newConfig = vscode.workspace.getConfiguration('telepresence');
-            let newInterval = newConfig.get<number>('autoRefreshInterval') || 10;
-            if (typeof newInterval !== 'number' || isNaN(newInterval) || newInterval < 1) {
-                newInterval = 10;
+            let newInterval = newConfig.get<number>('autoRefreshInterval') ?? 20;
+            if (typeof newInterval !== 'number' || isNaN(newInterval) || newInterval < 0) {
+                newInterval = 0;
             }
-            autoRefreshInterval = newInterval;
-            startAutoRefresh();
+            statusRefreshInterval = newInterval;
+            telepresenceManager.setStatusAutoRefreshInterval(newInterval);
         }
     });
+    context.subscriptions.push(configurationDisposable);
 
     // Registrar TreeViews en el Activity Bar
 
@@ -108,9 +137,16 @@ export function activate(context: vscode.ExtensionContext) {
     );
     
      // Verificar estado de telepresence al activar
-    telepresenceManager.checkCurrentTelepresenceStatus().catch(error => {
-        TelepresenceOutput.appendLine(`⚠️ Could not check telepresence status: ${error}`);
-    });
+    telepresenceManager.checkCurrentTelepresenceStatus()
+        .catch(error => {
+            TelepresenceOutput.appendLine(`⚠️ Could not check telepresence status: ${error}`);
+        })
+        .finally(() => {
+            statusProvider.refresh();
+            telepresenceManager.refreshStatusSnapshot({ trigger: 'activation', allowQueue: false }).catch((error) => {
+                TelepresenceOutput.appendLine(`⚠️ Could not initialize telepresence status snapshot: ${error}`);
+            });
+        });
 
     // Comando para abrir la GUI
     const openGuiCommand = vscode.commands.registerCommand('telepresence.openGui', () => {
@@ -124,16 +160,21 @@ export function activate(context: vscode.ExtensionContext) {
                 localResourceRoots: [context.extensionUri]
             }
         );
-        webviewProvider.setupWebview(panel.webview);
+        webviewProvider.registerPanel(panel);
     });
 
     // NUEVO: Comando para conectar solo al namespace
     const connectNamespaceCommand = vscode.commands.registerCommand('telepresence.connectNamespace', async () => {
         try {
             const settingsManager = telepresenceManager.getSettingsManager();
-            const allNamespaces = await kubernetesManager.getNamespaces();
+            const allNamespaces = await telepresenceManager.listNamespaces();
             const namespaceOptions = [...new Set([...allNamespaces])];
             
+            if (namespaceOptions.length === 0) {
+                vscode.window.showWarningMessage(i18n.localize('extension.namespace.noneFound'));
+                return;
+            }
+
             const namespace = await vscode.window.showQuickPick(namespaceOptions, {
                 placeHolder: 'Selecciona el namespace para conectar',
                 title: 'Conectar a Namespace'
@@ -163,6 +204,31 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             vscode.window.showErrorMessage(i18n.localize('extension.error.generic', error));
         }
+    });
+
+    const forceQuitCleanupCommand = vscode.commands.registerCommand('telepresence.forceQuitCleanup', async () => {
+        const confirm = await vscode.window.showWarningMessage(
+            'Force stop Telepresence background sessions (runs "telepresence quit -s")?',
+            { modal: true },
+            'Force Quit'
+        );
+
+        if (confirm !== 'Force Quit') {
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Executing telepresence quit -s',
+            cancellable: false
+        }, async () => {
+            await telepresenceManager.forceQuitTelepresenceCleanup();
+        });
+
+        vscode.window.showInformationMessage('Telepresence cleanup finished. You can reconnect to your namespace.');
+        namespaceProvider.refresh();
+        interceptionsProvider.refresh();
+        statusProvider.refresh();
     });
 
     // NUEVO: Comando para desconectar del namespace
@@ -202,6 +268,20 @@ export function activate(context: vscode.ExtensionContext) {
 
         } catch (error) {
             vscode.window.showErrorMessage(`Error: ${error}`);
+        }
+    });
+
+    const refreshNamespacesCommand = vscode.commands.registerCommand('telepresence.refreshNamespaces', async () => {
+        try {
+            const namespaces = await telepresenceManager.refreshNamespaces();
+            namespaceProvider.refresh();
+            vscode.window.showInformationMessage(
+                i18n.localize('extension.namespace.refreshSuccess', namespaces.length)
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(
+                i18n.localize('extension.namespace.refreshError', error instanceof Error ? error.message : String(error))
+            );
         }
     });
 
@@ -290,9 +370,14 @@ export function activate(context: vscode.ExtensionContext) {
             const settingsManager = telepresenceManager.getSettingsManager();
             
             // Obtener namespace
-            const allNamespaces = await kubernetesManager.getNamespaces();
+            const allNamespaces = await telepresenceManager.listNamespaces();
             const namespaceOptions = [...new Set([...allNamespaces])];
             
+            if (namespaceOptions.length === 0) {
+                vscode.window.showWarningMessage(i18n.localize('extension.namespace.noneFound'));
+                return;
+            }
+
             const namespace = await vscode.window.showQuickPick(namespaceOptions, {
                 placeHolder: 'Selecciona el namespace',
                 title: 'Namespace de Kubernetes'
@@ -497,6 +582,10 @@ export function activate(context: vscode.ExtensionContext) {
     const showConfigCommand = vscode.commands.registerCommand('telepresence.showConfig', () => {
         const config = vscode.workspace.getConfiguration('telepresence');
         const settingsManager = telepresenceManager.getSettingsManager();
+        const refreshIntervalSetting = config.get<number>('autoRefreshInterval');
+        const refreshInterval = typeof refreshIntervalSetting === 'number' && !isNaN(refreshIntervalSetting) && refreshIntervalSetting >= 1
+            ? refreshIntervalSetting
+            : 20;
         
         const configInfo = {
             'Default namespace': config.get('defaultNamespace') || 'Not configured',
@@ -504,7 +593,7 @@ export function activate(context: vscode.ExtensionContext) {
             'Required context': config.get('requiredContext') || 'Any',
             'Remember last connection': config.get('rememberLastConnection') ? 'Yes' : 'No',
             'Show context warnings': config.get('showContextWarning') ? 'Yes' : 'No',
-            'Refresh interval': config.get('autoRefreshInterval') + 's' || '30s',
+            'Refresh interval': `${refreshInterval}s`,
             'Namespace connection': telepresenceManager.isConnectedToNamespace() ? 
                 telepresenceManager.getConnectedNamespace() : 'Disconnected',
             'Active interceptions': telepresenceManager.getSessions().length
@@ -676,6 +765,7 @@ export function activate(context: vscode.ExtensionContext) {
         openGuiCommand,
         // openClusterLoginCommand eliminado ya que fue reemplazado por loginToKubernetesCommand
         connectNamespaceCommand,        
+        forceQuitCleanupCommand,
         disconnectNamespaceCommand,     
         interceptTrafficCommand,        
         connectCommand,
@@ -684,6 +774,7 @@ export function activate(context: vscode.ExtensionContext) {
         installKubeloginCommand,
         installKubectlCommand,
         refreshNamespaceCommand,
+        refreshNamespacesCommand,
         refreshInterceptionsCommand,
         refreshTelepresenceStatusCommand,                      
         refreshStatusCommand,

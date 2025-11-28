@@ -79,6 +79,9 @@
   "extension.namespace.disconnecting": "Desconectando del namespace {0}",
   "extension.namespace.disconnected": "Desconectado del namespace '{0}'",
   "extension.namespace.disconnectError": "Error al desconectar: {0}",
+  "extension.namespace.refreshSuccess": "Namespaces actualizados ({0})",
+  "extension.namespace.refreshError": "Error al actualizar los namespaces: {0}",
+  "extension.namespace.noneFound": "No se encontraron namespaces",
   "extension.namespace.connectFirstWarning": "Debes estar conectado a un namespace primero. ¿Quieres conectarte ahora?",
   "extension.intercept.title": "Interceptar tráfico en {0}",
   "extension.intercept.microservice": "Microservicio a interceptar",
@@ -142,5 +145,13 @@
   "common.delete": "Eliminar",
   "common.restartNow": "Reiniciar ahora",
   "common.later": "Más tarde",
+  "webview.panel.namespace.refresh": "🔄 Actualizar",
+  "activityBar.namespaces.refresh": "🔄 Actualizar namespaces",
+  "activityBar.namespaces.cachedCount": "Namespaces en caché: {0}",
+  "activityBar.namespaces.cachedEmpty": "No hay namespaces en caché",
+  "activityBar.interceptions.status.intercepting": "Interceptando...",
+  "message.info.refreshNamespaces": "Actualizando namespaces...",
+  "message.success.refreshNamespaces": "Namespaces actualizados ({0})",
+  "message.error.loadNamespaces": "Error al cargar namespaces: {0}",
   "webview.table.replicas": "Réplicas"
 }

@@ -2,7 +2,7 @@
   "name": "telepresence-gui",
   "displayName": "Telepresence GUI",
   "description": "Graphical interface for managing Telepresence in Kubernetes",
-  "version": "1.0.103",
+  "version": "1.0.104",
   "publisher": "JavierFrauca",
   "icon": "icon.png",
   "license": "MIT",
@@ -87,6 +87,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "telepresence.forceQuitCleanup",
+        "title": "Force Quit Telepresence (quit -s)",
+        "category": "Telepresence",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "telepresence.openGui",
         "title": "Open Telepresence GUI",
         "category": "Telepresence",
@@ -155,7 +161,7 @@
         "command": "telepresence.restartDeployment",
         "title": "Reiniciar Deployment",
         "category": "Telepresence",
-        "icon": "$(refresh)"
+        "icon": "$(zap)"
       },
       {
         "command": "telepresence.deletePod",
@@ -180,6 +186,18 @@
         "title": "Disconnect Session from Tree",
         "category": "Telepresence",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "telepresence.showSessionDetails",
+        "title": "Show Session Details",
+        "category": "Telepresence",
+        "icon": "$(info)"
+      },
+      {
+        "command": "telepresence.copySessionInfo",
+        "title": "Copy Session Info",
+        "category": "Telepresence",
+        "icon": "$(clippy)"
       }
     ],
     "menus": {
@@ -195,6 +213,11 @@
           "group": "navigation@2"
         },
         {
+          "command": "telepresence.forceQuitCleanup",
+          "when": "view == telepresenceNamespace",
+          "group": "navigation@3"
+        },
+        {
           "command": "telepresence.interceptTraffic",
           "when": "view == telepresenceInterceptions",
           "group": "navigation@1"
@@ -208,6 +231,11 @@
           "command": "telepresence.refreshTelepresenceStatus",
           "when": "view == telepresenceStatus",
           "group": "navigation@1"
+        },
+        {
+          "command": "telepresence.interceptTraffic",
+          "when": "view == telepresenceStatus",
+          "group": "navigation@0"
         },
         {
           "command": "telepresence.scaleDeployment",
@@ -283,6 +311,10 @@
           "when": "true"
         },
         {
+          "command": "telepresence.forceQuitCleanup",
+          "when": "true"
+        },
+        {
           "command": "telepresence.loginToKubernetes",
           "when": "true"
         },
@@ -295,15 +327,11 @@
     "configuration": {
       "title": "Telepresence",
       "properties": {
-        "telepresence.generalRefreshInterval": {
+        "telepresence.autoRefreshInterval": {
           "type": "number",
-          "default": 15,
-          "description": "General refresh interval in seconds (tools, context, namespaces)"
-        },
-        "telepresence.telepresenceRefreshInterval": {
-          "type": "number",
-          "default": 5,
-          "description": "Telepresence status refresh interval in seconds"
+          "default": 20,
+          "minimum": 0,
+          "description": "Seconds between automatic Telepresence status refreshes. Set to 0 to disable auto-refresh and refresh manually."
         }
       }
     }
