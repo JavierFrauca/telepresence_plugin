@@ -118,4 +118,4 @@ This project is under the MIT license. See the LICENSE.txt file for more details
 
 ---
 
-Desarrollado con ❤️ para la comunidad de desarrolladores de Kubernetes y microservicios.
+Desarrollado con ❤️ para la comunidad de desarrolladores de Kubernetes y microservicios
