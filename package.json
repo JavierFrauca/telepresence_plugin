@@ -340,7 +340,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && npm run copy-i18n",
     "watch": "tsc -watch -p ./",
-    "copy-i18n": "powershell -Command \"if (!(Test-Path -Path ./out/i18n)) { New-Item -ItemType Directory -Path ./out/i18n -Force }; Copy-Item ./src/i18n/*.json ./out/i18n/ -Force\"",
+    "copy-i18n": "node scripts/copy-i18n.js",
     "test": "jest --config jest.config.json",
     "test:watch": "jest --config jest.config.json --watch",
     "test:coverage": "jest --config jest.config.json --coverage"
