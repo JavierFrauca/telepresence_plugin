@@ -59,16 +59,7 @@ jobs:
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # ----------------------------------------------------------------------
-    # Publicación automática en el Marketplace de VSCode (DESACTIVADA)
-    # ----------------------------------------------------------------------
-    # Para activarla:
-    # 1. Crea un token en: https://aka.ms/vscode-marketplace-token
-    # 2. Guárdalo como secreto: VSCE_TOKEN
-    # 3. Quita los comentarios:
-    #
-    # - name: Publicar en el Marketplace
-    #   run: vsce publish -p ${{ secrets.VSCE_TOKEN }}
-    #
-    # ----------------------------------------------------------------------
+    - name: Publicar en el Marketplace
+      env:
+        VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
+        run: vsce publish -p $VSCE_TOKEN
