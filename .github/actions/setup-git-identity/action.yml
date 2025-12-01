@@ -1,0 +1,17 @@
+name: 'Setup Git Identity'
+description: 'Configure user.name and user.email for commits made from GitHub Actions'
+inputs:
+  name:
+    description: 'Git user name'
+    required: true
+  email:
+    description: 'Git user email'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Set git identity
+      shell: bash
+      run: |
+        git config user.name "${{ inputs.name }}"
+        git config user.email "${{ inputs.email }}"
