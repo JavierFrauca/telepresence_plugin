@@ -1,0 +1,74 @@
+name: Build, Bump Version and Release VSCode Extension
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-bump-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        persist-credentials: true
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Compile
+      run: npm run compile
+
+    - name: Install VSCE
+      run: npm install -g @vscode/vsce
+
+    - name: Setup Git Identity
+      uses: ./.github/actions/setup-git-identity
+      with:
+        name: ${{ github.actor }}
+        email: ${{ github.actor }}@users.noreply.github.com
+
+    - name: Version bump (patch)
+      id: bump
+      run: |
+        NEW_VERSION=$(npm version patch -m "ci: bump version to %s")
+        echo "version=${NEW_VERSION#v}" >> $GITHUB_OUTPUT
+    - name: Push version bump commit
+      run: |
+        git push --follow-tags
+    - name: Package extension
+      run: vsce package
+
+    - name: Create or update GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ steps.bump.outputs.version }}
+        name: Release v${{ steps.bump.outputs.version }}
+        files: ./*.vsix
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ----------------------------------------------------------------------
+    # Publicación automática en el Marketplace de VSCode (DESACTIVADA)
+    # ----------------------------------------------------------------------
+    # Para activarla:
+    # 1. Crea un token en: https://aka.ms/vscode-marketplace-token
+    # 2. Guárdalo como secreto: VSCE_TOKEN
+    # 3. Quita los comentarios:
+    #
+    # - name: Publicar en el Marketplace
+    #   run: vsce publish -p ${{ secrets.VSCE_TOKEN }}
+    #
+    # ----------------------------------------------------------------------
