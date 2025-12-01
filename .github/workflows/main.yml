@@ -59,7 +59,7 @@ jobs:
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Publicar en el Marketplace
+    - name: Publish on Marketplace
       env:
         VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
-        run: vsce publish -p $VSCE_TOKEN
+      run: vsce publish -p $VSCE_TOKEN
