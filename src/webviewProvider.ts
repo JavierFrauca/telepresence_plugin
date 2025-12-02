@@ -69,6 +69,7 @@ export class TelepresenceWebviewProvider {
         for (const webview of Array.from(this.activeWebviews)) {
             try {
                 await this.messageHandler.pushTelepresenceStatus(webview, snapshot);
+                await this.messageHandler.checkPrerequisites(webview);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 TelepresenceOutput.appendLine(`[Telepresence] Error broadcasting status: ${errorMessage}`);

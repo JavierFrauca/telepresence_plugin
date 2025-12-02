@@ -376,7 +376,7 @@ export class WebviewMessageHandler {
         }
     }
 
-    private async checkPrerequisites(webview: vscode.Webview): Promise<void> {
+    public async checkPrerequisites(webview: vscode.Webview): Promise<void> {
         const telepresenceInstalled = await this.telepresenceManager.checkTelepresenceInstalled();
         const kubectlInstalled = await this.kubernetesManager.checkKubectlInstalled();
         const kubeloginInstalled = await this.kubernetesManager.checkKubeloginInstalled();
