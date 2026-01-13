@@ -37,51 +37,7 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
         if (!element) {
             const items: NamespaceTreeItem[] = [];
             
-            // Estado de conexión al namespace
-            const connectedNamespace = this.telepresenceManager.getConnectedNamespace();
-            
-            if (connectedNamespace) {
-                items.push(new NamespaceTreeItem(
-                    `Connected: ${connectedNamespace}`,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    'connected-namespace',
-                    'debug-start',
-                    connectedNamespace
-                ));
-            } else {
-                items.push(new NamespaceTreeItem(
-                    'Connect to Namespace',
-                    vscode.TreeItemCollapsibleState.None,
-                    'connect-action',
-                    'plug'
-                ));
-            }
-
-            items.push(new NamespaceTreeItem(
-                i18n.localize('activityBar.namespaces.refresh', '🔄 Refresh Namespaces'),
-                vscode.TreeItemCollapsibleState.None,
-                'refresh-namespaces',
-                'refresh'
-            ));
-
-            const cachedNamespaces = this.telepresenceManager.getCachedNamespaces();
-            const cachedLabel = i18n.localize(
-                'activityBar.namespaces.cachedCount',
-                'Cached namespaces: {0}',
-                cachedNamespaces.length
-            );
-            const cachedItem = new NamespaceTreeItem(
-                cachedLabel,
-                vscode.TreeItemCollapsibleState.None,
-                'namespaces-info',
-                'symbol-number'
-            );
-            cachedItem.tooltip = cachedNamespaces.length > 0
-                ? cachedNamespaces.join(', ')
-                : i18n.localize('activityBar.namespaces.cachedEmpty', 'No cached namespaces');
-            items.push(cachedItem);
-
-            // Current context
+            // Current context - PRIMERO
             try {
                 const currentContext = await this.kubernetesManager.getCurrentContext();
                 items.push(new NamespaceTreeItem(
@@ -96,6 +52,34 @@ export class NamespaceTreeProvider implements vscode.TreeDataProvider<NamespaceT
                     vscode.TreeItemCollapsibleState.None,
                     'context-error',
                     'error'
+                ));
+            }
+
+            // Estado de conexión al namespace - TERCERO
+            const connectedNamespace = this.telepresenceManager.getConnectedNamespace();
+            
+            if (connectedNamespace) {
+                items.push(new NamespaceTreeItem(
+                    `Connected: ${connectedNamespace}`,
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    'connected-namespace',
+                    'debug-start',
+                    connectedNamespace
+                ));
+                
+                // Acción de reconectar
+                items.push(new NamespaceTreeItem(
+                    'Reconnect to Namespace',
+                    vscode.TreeItemCollapsibleState.None,
+                    'reconnect-namespace',
+                    'refresh'
+                ));
+            } else {
+                items.push(new NamespaceTreeItem(
+                    'Connect to Namespace',
+                    vscode.TreeItemCollapsibleState.None,
+                    'connect-action',
+                    'plug'
                 ));
             }
 
@@ -164,10 +148,10 @@ export class NamespaceTreeItem extends vscode.TreeItem {
                 command: 'telepresence.disconnectNamespace',
                 title: 'Disconnect from Namespace'
             };
-        } else if (contextValue === 'refresh-namespaces') {
+        } else if (contextValue === 'reconnect-namespace') {
             this.command = {
-                command: 'telepresence.refreshNamespaces',
-                title: label
+                command: 'telepresence.reconnectNamespace',
+                title: 'Reconnect to Namespace'
             };
         }
     }
