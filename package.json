@@ -2,7 +2,7 @@
   "name": "telepresence-gui",
   "displayName": "Telepresence GUI",
   "description": "Graphical interface for managing Telepresence in Kubernetes",
-  "version": "1.0.107",
+  "version": "1.0.109",
   "publisher": "JavierFrauca",
   "icon": "icon.png",
   "license": "MIT",
@@ -109,6 +109,18 @@
         "title": "Disconnect from Namespace",
         "category": "Telepresence",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "telepresence.reconnectNamespace",
+        "title": "Reconnect to Namespace",
+        "category": "Telepresence",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "telepresence.changeKubernetesContext",
+        "title": "Change Kubernetes Context",
+        "category": "Telepresence",
+        "icon": "$(arrow-swap)"
       },
       {
         "command": "telepresence.interceptTraffic",
@@ -255,6 +267,11 @@
       ],
       "view/item/context": [
         {
+          "command": "telepresence.changeKubernetesContext",
+          "when": "view == telepresenceNamespace && viewItem == context-info",
+          "group": "inline"
+        },
+        {
           "command": "telepresence.disconnectFromTree",
           "when": "view == telepresenceView && viewItem == session",
           "group": "inline"
@@ -284,6 +301,10 @@
         },
         {
           "command": "telepresence.disconnectNamespace",
+          "when": "true"
+        },
+        {
+          "command": "telepresence.reconnectNamespace",
           "when": "true"
         },
         {

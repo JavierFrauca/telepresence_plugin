@@ -354,6 +354,88 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Comando para reconectar al namespace actual (sin desconectar primero)
+    const reconnectNamespaceCommand = vscode.commands.registerCommand('telepresence.reconnectNamespace', async () => {
+        try {
+            const currentNamespace = telepresenceManager.getConnectedNamespace();
+            
+            if (!currentNamespace) {
+                vscode.window.showWarningMessage('No namespace connected. Use "Connect to Namespace" instead.');
+                return;
+            }
+
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Reconnecting to namespace ${currentNamespace}`,
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Re-establishing connection...' });
+                
+                try {
+                    await telepresenceManager.connectToNamespace(currentNamespace);
+                    vscode.window.showInformationMessage(`Reconnected to namespace '${currentNamespace}'`);
+                    treeProvider.refresh();
+                    namespaceProvider.refresh();
+                    interceptionsProvider.refresh();
+                    statusProvider.refresh();
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error reconnecting: ${error}`);
+                }
+            });
+
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error: ${error}`);
+        }
+    });
+
+    // Comando para cambiar el contexto de Kubernetes
+    const changeKubernetesContextCommand = vscode.commands.registerCommand('telepresence.changeKubernetesContext', async () => {
+        try {
+            // Obtener lista de contextos disponibles
+            const contextsOutput = await kubernetesManager.executeCommand('kubectl config get-contexts -o name');
+            const contexts = contextsOutput.trim().split('\n').filter((ctx: string) => ctx.length > 0);
+            
+            if (contexts.length === 0) {
+                vscode.window.showWarningMessage('No Kubernetes contexts found');
+                return;
+            }
+
+            const currentContext = await kubernetesManager.getCurrentContext();
+            
+            // Crear items del QuickPick con el contexto actual marcado
+            const contextItems = contexts.map(ctx => ({
+                label: ctx === currentContext ? `$(check) ${ctx}` : ctx,
+                description: ctx === currentContext ? '(current)' : '',
+                context: ctx
+            }));
+
+            const selected = await vscode.window.showQuickPick(contextItems, {
+                placeHolder: 'Select Kubernetes context',
+                title: 'Change Kubernetes Context'
+            });
+
+            if (!selected) {
+                return;
+            }
+
+            if (selected.context === currentContext) {
+                vscode.window.showInformationMessage(`Already using context '${currentContext}'`);
+                return;
+            }
+
+            // Cambiar contexto
+            await kubernetesManager.executeCommand(`kubectl config use-context ${selected.context}`);
+            vscode.window.showInformationMessage(`Switched to context '${selected.context}'`);
+            
+            // Refrescar vistas
+            namespaceProvider.refresh();
+            treeProvider.refresh();
+            
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error changing context: ${error}`);
+        }
+    });
+
     // NUEVO: Comando para interceptar tráfico
     const interceptTrafficCommand = vscode.commands.registerCommand('telepresence.interceptTraffic', async () => {
         try {
@@ -835,7 +917,9 @@ export function activate(context: vscode.ExtensionContext) {
         // openClusterLoginCommand eliminado ya que fue reemplazado por loginToKubernetesCommand
         connectNamespaceCommand,        
         forceQuitCleanupCommand,
-        disconnectNamespaceCommand,     
+        disconnectNamespaceCommand,
+        reconnectNamespaceCommand,
+        changeKubernetesContextCommand,     
         interceptTrafficCommand,        
         connectCommand,
         disconnectCommand,
