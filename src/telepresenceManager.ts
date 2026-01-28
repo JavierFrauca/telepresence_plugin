@@ -75,6 +75,14 @@ interface StatusRefreshOptions {
     allowQueue?: boolean;
 }
 
+export interface ForceQuitOptions {
+    uninstallAgents?: boolean;
+    clearNamespaceConnection?: boolean;
+    resetCaches?: boolean;
+    resetStatusSnapshot?: boolean;
+    label?: string;
+}
+
 export class TelepresenceManager {
     private sessions: Map<string, TelepresenceSession> = new Map();
     private namespaceConnection: NamespaceConnection | null = null; // NEW: Namespace connection state
@@ -279,10 +287,19 @@ export class TelepresenceManager {
         return runner;
     }
 
-    async forceQuitTelepresenceCleanup(): Promise<void> {
+    async forceQuitTelepresenceCleanup(options?: ForceQuitOptions): Promise<void> {
+        const {
+            uninstallAgents = false,
+            clearNamespaceConnection = true,
+            resetCaches = false,
+            resetStatusSnapshot = false,
+            label
+        } = options ?? {};
+
         const startTime = Date.now();
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
-        TelepresenceOutput.appendLine('🧹 FORCE QUIT REQUESTED: Running "telepresence quit -s" to clean stale sessions');
+        const modeLabel = label ? ` (${label})` : '';
+        TelepresenceOutput.appendLine(`🧹 FORCE QUIT REQUESTED${modeLabel}: Running "telepresence quit -s" to clean stale sessions`);
         TelepresenceOutput.appendLine(`⏱️ Start Time: ${new Date().toISOString()}`);
         TelepresenceOutput.appendLine(`${'='.repeat(80)}`);
 
@@ -297,6 +314,18 @@ export class TelepresenceManager {
                 TelepresenceOutput.appendLine(`⚠️ telepresence quit -s failed: ${error}`);
             }
 
+            if (uninstallAgents) {
+                try {
+                    const uninstallOutput = await this.executeCommand('telepresence uninstall --all-agents');
+                    TelepresenceOutput.appendLine('✅ telepresence uninstall --all-agents completed successfully');
+                    if (uninstallOutput?.trim()) {
+                        TelepresenceOutput.appendLine(uninstallOutput.trim());
+                    }
+                } catch (error) {
+                    TelepresenceOutput.appendLine(`⚠️ telepresence uninstall --all-agents failed: ${error}`);
+                }
+            }
+
             try {
                 await this.killTelepresenceDaemons();
                 TelepresenceOutput.appendLine('✅ killTelepresenceDaemons executed after quit');
@@ -308,8 +337,25 @@ export class TelepresenceManager {
             this.sessions.clear();
             this.notifySessionsChanged();
             this.manualDisconnectTimestamp = Date.now();
-            this.updateNamespaceConnection(null);
-            TelepresenceOutput.appendLine('ℹ️ Cleared cached sessions and namespace connection state');
+            if (clearNamespaceConnection) {
+                this.updateNamespaceConnection(null);
+                TelepresenceOutput.appendLine('ℹ️ Cleared namespace connection state');
+            }
+
+            if (resetCaches) {
+                this.namespaceCache = [];
+                this.namespaceCacheTimestamp = 0;
+                this.notifyNamespacesChanged();
+                TelepresenceOutput.appendLine('ℹ️ Cleared namespace cache');
+            }
+
+            if (resetStatusSnapshot) {
+                this.statusSnapshot = null;
+                this.statusSnapshotTimestamp = 0;
+                TelepresenceOutput.appendLine('ℹ️ Cleared status snapshot cache');
+            }
+
+            TelepresenceOutput.appendLine('ℹ️ Cleared cached sessions');
 
             await this.refreshStatusSnapshot({ trigger: 'forceQuitCleanup', allowQueue: false });
             TelepresenceOutput.appendLine('🔄 Status snapshot refreshed after force quit');

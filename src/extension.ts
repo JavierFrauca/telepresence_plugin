@@ -207,25 +207,94 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const forceQuitCleanupCommand = vscode.commands.registerCommand('telepresence.forceQuitCleanup', async () => {
-        const confirm = await vscode.window.showWarningMessage(
-            'Force stop Telepresence background sessions (runs "telepresence quit -s")?',
-            { modal: true },
-            'Force Quit'
-        );
+        const choices: Array<vscode.QuickPickItem & {
+            id: string;
+            managerOptions: import('./telepresenceManager').ForceQuitOptions;
+            progressTitle: string;
+            confirmMessage?: string;
+            successMessage: string;
+        }> = [
+            {
+                id: 'simple',
+                label: i18n.localize('extension.cleanup.option.simple.title', 'Stop local Telepresence sessions'),
+                description: i18n.localize('extension.cleanup.option.simple.description', 'Runs "telepresence quit -s" and restarts daemons'),
+                managerOptions: { label: 'Simple' },
+                progressTitle: i18n.localize('extension.cleanup.option.simple.progress', 'Stopping Telepresence sessions'),
+                successMessage: i18n.localize('extension.cleanup.option.simple.success', 'Telepresence sessions stopped')
+            },
+            {
+                id: 'ui-reset',
+                label: i18n.localize('extension.cleanup.option.uiReset.title', 'Stop and reset local state'),
+                description: i18n.localize('extension.cleanup.option.uiReset.description', 'Quit + kill daemons + clear namespace connection and caches'),
+                managerOptions: {
+                    label: 'UI Reset',
+                    resetCaches: true,
+                    resetStatusSnapshot: true,
+                    clearNamespaceConnection: true
+                },
+                progressTitle: i18n.localize('extension.cleanup.option.uiReset.progress', 'Resetting Telepresence local state'),
+                successMessage: i18n.localize('extension.cleanup.option.uiReset.success', 'Local state reset completed')
+            },
+            {
+                id: 'uninstall',
+                label: i18n.localize('extension.cleanup.option.uninstall.title', 'Stop and remove cluster agents'),
+                description: i18n.localize('extension.cleanup.option.uninstall.description', 'Quit + uninstall all agents (telepresence uninstall --all-agents)'),
+                managerOptions: {
+                    label: 'With Uninstall',
+                    uninstallAgents: true,
+                    clearNamespaceConnection: true
+                },
+                progressTitle: i18n.localize('extension.cleanup.option.uninstall.progress', 'Removing Telepresence agents and stopping sessions'),
+                confirmMessage: i18n.localize('extension.cleanup.option.uninstall.confirm', 'This will remove Telepresence agents from the cluster. Continue?'),
+                successMessage: i18n.localize('extension.cleanup.option.uninstall.success', 'Agents removed and sessions stopped')
+            },
+            {
+                id: 'full-reset',
+                label: i18n.localize('extension.cleanup.option.fullReset.title', 'Full reset (uninstall + clear caches)'),
+                description: i18n.localize('extension.cleanup.option.fullReset.description', 'Uninstall agents, clear caches, reset namespace connection'),
+                managerOptions: {
+                    label: 'Full Reset',
+                    uninstallAgents: true,
+                    resetCaches: true,
+                    resetStatusSnapshot: true,
+                    clearNamespaceConnection: true
+                },
+                progressTitle: i18n.localize('extension.cleanup.option.fullReset.progress', 'Performing full Telepresence reset'),
+                confirmMessage: i18n.localize('extension.cleanup.option.fullReset.confirm', 'Full reset will remove agents and cached state. Continue?'),
+                successMessage: i18n.localize('extension.cleanup.option.fullReset.success', 'Telepresence fully reset to default state')
+            }
+        ];
 
-        if (confirm !== 'Force Quit') {
+        const pick = await vscode.window.showQuickPick(choices, {
+            title: i18n.localize('extension.cleanup.pick.title', 'Choose cleanup level'),
+            placeHolder: i18n.localize('extension.cleanup.pick.placeholder', 'Select how aggressively to stop and reset Telepresence'),
+            matchOnDescription: true
+        });
+
+        if (!pick) {
             return;
+        }
+
+        if (pick.confirmMessage) {
+            const confirmed = await vscode.window.showWarningMessage(
+                pick.confirmMessage,
+                { modal: true },
+                i18n.localize('extension.cleanup.confirmProceed', 'Continue')
+            );
+            if (!confirmed) {
+                return;
+            }
         }
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: 'Executing telepresence quit -s',
+            title: pick.progressTitle,
             cancellable: false
         }, async () => {
-            await telepresenceManager.forceQuitTelepresenceCleanup();
+            await telepresenceManager.forceQuitTelepresenceCleanup({ ...pick.managerOptions });
         });
 
-        vscode.window.showInformationMessage('Telepresence cleanup finished. You can reconnect to your namespace.');
+        vscode.window.showInformationMessage(pick.successMessage);
         namespaceProvider.refresh();
         interceptionsProvider.refresh();
         statusProvider.refresh();
