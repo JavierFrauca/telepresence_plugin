@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TelepresenceManager } from './telepresenceManager';
+import { TelepresenceManager, MIN_TELEPRESENCE_VERSION, TELEPRESENCE_INSTALL_URL } from './telepresenceManager';
 import { KubernetesManager, AuthInfo } from './kubernetesManager';
 import { TelepresenceWebviewProvider } from './webviewProvider';
 import { TelepresenceTreeProvider, registerTreeViewCommands } from './treeProvider';
@@ -392,9 +392,8 @@ export function activate(context: vscode.ExtensionContext) {
     const changeKubernetesContextCommand = vscode.commands.registerCommand('telepresence.changeKubernetesContext', async () => {
         try {
             // Obtener lista de contextos disponibles
-            const contextsOutput = await kubernetesManager.executeCommand('kubectl config get-contexts -o name');
-            const contexts = contextsOutput.trim().split('\n').filter((ctx: string) => ctx.length > 0);
-            
+            const contexts = (await kubernetesManager.getContexts()).map(ctx => ctx.name);
+
             if (contexts.length === 0) {
                 vscode.window.showWarningMessage('No Kubernetes contexts found');
                 return;
@@ -423,8 +422,14 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // Cambiar contexto
-            await kubernetesManager.executeCommand(`kubectl config use-context ${selected.context}`);
+            // Cambiar contexto: telepresence lo recibe con --context, sin tocar el kubeconfig
+            kubernetesManager.setSelectedContext(selected.context);
+
+            // Si había conexión, reconectar el mismo namespace con el nuevo contexto
+            const connectedNamespace = telepresenceManager.getConnectedNamespace();
+            if (connectedNamespace) {
+                await telepresenceManager.connectToNamespace(connectedNamespace);
+            }
             vscode.window.showInformationMessage(`Switched to context '${selected.context}'`);
             
             // Refrescar vistas
@@ -765,16 +770,8 @@ export function activate(context: vscode.ExtensionContext) {
             let kubectlVersion = 'Not installed';
             let kubeloginVersion = 'Not installed';
             
-            try {
-                const telepresenceOutput = await telepresenceManager.executeCommand('telepresence version');
-                const telepresenceMatch = telepresenceOutput.match(/telepresence\s+(\d+\.\d+\.\d+)/i);
-                if (telepresenceMatch) {
-                    telepresenceVersion = telepresenceMatch[1];
-                } else {
-                    telepresenceVersion = 'Installed (version not detected)';
-                }
-            } catch (error) {
-                telepresenceVersion = 'Not installed';
+            if (await telepresenceManager.checkTelepresenceInstalled()) {
+                telepresenceVersion = await telepresenceManager.getTelepresenceVersion() ?? 'Installed (version not detected)';
             }
             
             try {
@@ -941,62 +938,30 @@ export function activate(context: vscode.ExtensionContext) {
     // Auto-refresh deshabilitado: la actualización de Activity Bar solo se realiza manualmente mediante los iconos de refresco.
 
     // Verificar prerequisitos al iniciar
-    telepresenceManager.checkTelepresenceInstalled().then(installed => {
+    telepresenceManager.checkTelepresenceInstalled().then(async installed => {
         if (!installed) {
             vscode.window.showWarningMessage(
-                'Telepresence is not installed or not found in PATH', 
-                'Install Now', 
+                'Telepresence is not installed or not found in PATH',
+                'Install Now',
                 'Manual Instructions'
             ).then(selection => {
                 if (selection === 'Install Now') {
                     vscode.commands.executeCommand('telepresence.installTelepresence');
                 }
             });
+            return;
         }
-    });
 
-    // Verificar kubectl siempre al iniciar
-    kubernetesManager.checkKubectlInstalled().then(installed => {
-        if (!installed) {
-            vscode.window.showWarningMessage(
-                'kubectl is not installed or not found in PATH',
-                'Install Kubectl',
-                'Manual Instructions'
-            ).then(selection => {
-                if (selection === 'Install Kubectl') {
-                    vscode.commands.executeCommand('telepresence.installKubectl');
-                }
-            });
-        }
-    });
-
-    // NUEVO: Verificar kubelogin siempre al iniciar (no solo en Azure)
-    kubernetesManager.checkKubeloginInstalled().then(installed => {
-        if (!installed) {
-            vscode.window.showInformationMessage(
-                'Kubelogin is recommended for Kubernetes clusters',
-                'Install Kubelogin',
-                'Dismiss'
-            ).then(selection => {
-                if (selection === 'Install Kubelogin') {
-                    vscode.commands.executeCommand('telepresence.installKubelogin');
-                }
-            });
-        }
-    });
-
-    // Verificar kubectl siempre al iniciar
-    kubernetesManager.checkKubectlInstalled().then(installed => {
-        if (!installed) {
-            vscode.window.showWarningMessage(
-                'kubectl is not installed or not found in PATH',
-                'Install Kubectl',
-                'Manual Instructions'
-            ).then(selection => {
-                if (selection === 'Install Kubectl') {
-                    vscode.commands.executeCommand('telepresence.installKubectl');
-                }
-            });
+        const { ok, version } = await telepresenceManager.checkTelepresenceVersion();
+        if (!ok) {
+            const openSite = i18n.localize('telepresence.version.openSite');
+            const selection = await vscode.window.showWarningMessage(
+                i18n.localize('telepresence.version.unsupported', version, MIN_TELEPRESENCE_VERSION),
+                openSite
+            );
+            if (selection === openSite) {
+                vscode.env.openExternal(vscode.Uri.parse(TELEPRESENCE_INSTALL_URL));
+            }
         }
     });
 

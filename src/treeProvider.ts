@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TelepresenceManager, TelepresenceSession } from './telepresenceManager';
 import { KubernetesManager } from './kubernetesManager';
+import { i18n } from './i18n/localizationManager';
 
 export class TelepresenceTreeProvider implements vscode.TreeDataProvider<TelepresenceTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<TelepresenceTreeItem | undefined | null | void> = new vscode.EventEmitter<TelepresenceTreeItem | undefined | null | void>();
@@ -31,22 +32,25 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
             const settingsManager = this.telepresenceManager.getSettingsManager();
             const requiredContext = settingsManager.getRequiredContext();
 
+            const installedLabel = i18n.localize('scripts.ui.installed', '✅ Installed');
+            const missingLabel = i18n.localize('scripts.ui.missing', '❌ Missing');
+
             items.push(new TelepresenceTreeItem(
-                `Telepresence: ${isTelepresenceInstalled ? '✅ Installed' : '❌ Missing'}`,
+                `${i18n.localize('tree.status.telepresence', 'Telepresence')}: ${isTelepresenceInstalled ? installedLabel : missingLabel}`,
                 vscode.TreeItemCollapsibleState.None,
                 'status',
                 isTelepresenceInstalled ? 'check' : 'error'
             ));
 
             items.push(new TelepresenceTreeItem(
-                `kubectl: ${isKubectlInstalled ? '✅ Installed' : '❌ Missing'}`,
+                `${i18n.localize('tree.status.kubectl', 'kubectl')}: ${isKubectlInstalled ? installedLabel : missingLabel}`,
                 vscode.TreeItemCollapsibleState.None,
                 'status',
                 isKubectlInstalled ? 'check' : 'error'
             ));
 
             items.push(new TelepresenceTreeItem(
-                `kubelogin: ${isKubeloginInstalled ? '✅ Installed' : '❌ Missing'}`,
+                `${i18n.localize('tree.status.kubelogin', 'kubelogin')}: ${isKubeloginInstalled ? installedLabel : missingLabel}`,
                 vscode.TreeItemCollapsibleState.None,
                 'status',
                 isKubeloginInstalled ? 'check' : 'warning'
@@ -54,18 +58,20 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
 
             // Context status with dynamic required context
             let contextStatus = 'check';
-            let contextLabel = `Context: ${currentContext || 'Not Set'}`;
+            const notSetLabel = i18n.localize('tree.context.notSet', 'Not Set');
+            const displayContext = currentContext || notSetLabel;
+            let contextLabel = i18n.localize('tree.status.contextLabel', displayContext);
             
             if (requiredContext) {
                 if (currentContext === requiredContext) {
-                    contextLabel = `Context: ✅ ${currentContext}`;
+                    contextLabel = i18n.localize('tree.status.contextMatch', displayContext);
                     contextStatus = 'check';
                 } else {
-                    contextLabel = `Context: ⚠️ ${currentContext || 'Not Set'} (required: ${requiredContext})`;
+                    contextLabel = i18n.localize('tree.status.contextRequired', displayContext, requiredContext);
                     contextStatus = 'warning';
                 }
             } else {
-                contextLabel = `Context: ${currentContext || 'Not Set'} (any allowed)`;
+                contextLabel = i18n.localize('tree.status.contextAny', displayContext);
                 contextStatus = 'check';
             }
 
@@ -94,12 +100,12 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
                         this.getSessionIcon(session.status),
                         session
                     );
-                    sessionItem.tooltip = `${session.deployment} in ${session.namespace}\nPort: ${session.localPort}\nStatus: ${session.status}`;
+                    sessionItem.tooltip = i18n.localize('tree.session.tooltip', `${session.deployment}`, session.namespace, session.localPort, session.status);
                     items.push(sessionItem);
                 });
             } else {
                 items.push(new TelepresenceTreeItem(
-                    'No active sessions',
+                    i18n.localize('tree.sessions.none', 'No active sessions'),
                     vscode.TreeItemCollapsibleState.None,
                     'empty',
                     'circle-slash'
@@ -114,21 +120,21 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
             const items: TelepresenceTreeItem[] = [];
 
             items.push(new TelepresenceTreeItem(
-                `Namespace: ${session.namespace}`,
+                i18n.localize('tree.session.detail.namespace', session.namespace),
                 vscode.TreeItemCollapsibleState.None,
                 'detail',
                 'symbol-namespace'
             ));
 
             items.push(new TelepresenceTreeItem(
-                `Local Port: ${session.localPort}`,
+                i18n.localize('tree.session.detail.localPort', session.localPort),
                 vscode.TreeItemCollapsibleState.None,
                 'detail',
                 'port'
             ));
 
             items.push(new TelepresenceTreeItem(
-                `Status: ${session.status}`,
+                i18n.localize('tree.session.detail.status', session.status),
                 vscode.TreeItemCollapsibleState.None,
                 'detail',
                 this.getSessionIcon(session.status)
@@ -136,7 +142,7 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
 
             const duration = Math.floor((Date.now() - new Date(session.startTime).getTime()) / 1000 / 60);
             items.push(new TelepresenceTreeItem(
-                `Duration: ${duration}min`,
+                i18n.localize('tree.session.detail.duration', duration),
                 vscode.TreeItemCollapsibleState.None,
                 'detail',
                 'clock'
@@ -144,7 +150,7 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
 
             if (session.error) {
                 items.push(new TelepresenceTreeItem(
-                    `Error: ${session.error}`,
+                    i18n.localize('tree.session.detail.error', session.error),
                     vscode.TreeItemCollapsibleState.None,
                     'error',
                     'error'
@@ -153,7 +159,7 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
 
             // Add action buttons
             items.push(new TelepresenceTreeItem(
-                'Disconnect Session',
+                i18n.localize('extension.session.disconnect', 'Disconnect Session'),
                 vscode.TreeItemCollapsibleState.None,
                 'action-disconnect',
                 'debug-stop',
@@ -190,13 +196,13 @@ export class TelepresenceTreeProvider implements vscode.TreeDataProvider<Telepre
         const days = Math.floor(hours / 24);
         
         if (days > 0) {
-            return `${days}d ago`;
+            return i18n.localize('tree.time.daysAgo', days);
         } else if (hours > 0) {
-            return `${hours}h ago`;
+            return i18n.localize('tree.time.hoursAgo', hours);
         } else if (minutes > 0) {
-            return `${minutes}m ago`;
+            return i18n.localize('tree.time.minutesAgo', minutes);
         } else {
-            return 'just now';
+            return i18n.localize('tree.time.justNow', 'just now');
         }
     }
 }
@@ -222,13 +228,13 @@ export class TelepresenceTreeItem extends vscode.TreeItem {
         if (contextValue === 'action-disconnect' && session) {
             this.command = {
                 command: 'telepresence.disconnectFromTree',
-                title: 'Disconnect Session',
+                title: i18n.localize('extension.session.disconnect', 'Disconnect Session'),
                 arguments: [session.id]
             };
         } else if (contextValue === 'action-reconnect' && connection) {
             this.command = {
                 command: 'telepresence.reconnectFromTree',
-                title: 'Reconnect',
+                title: i18n.localize('extension.session.reconnect', 'Reconnect'),
                 arguments: [connection]
             };
         }
@@ -254,11 +260,11 @@ export class TelepresenceTreeItem extends vscode.TreeItem {
                 this.description = '';
                 break;
             case 'empty':
-                this.description = 'Click + to create a new session';
+                this.description = i18n.localize('tree.description.empty', 'Click + to create a new session');
                 break;
             case 'namespace-item':
             case 'context-item':
-                this.description = 'Click to use';
+                this.description = i18n.localize('tree.description.context', 'Click to use');
                 break;
         }
     }
@@ -271,9 +277,9 @@ export function registerTreeViewCommands(context: vscode.ExtensionContext, telep
         try {
             await telepresenceManager.disconnectSession(sessionId);
             treeProvider.refresh();
-            vscode.window.showInformationMessage('Session disconnected successfully');
+            vscode.window.showInformationMessage(i18n.localize('tree.session.disconnectSuccess', 'Session disconnected successfully'));
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to disconnect: ${error}`);
+            vscode.window.showErrorMessage(i18n.localize('tree.session.disconnectError', error instanceof Error ? error.message : String(error)));
         }
     });
 
@@ -282,9 +288,9 @@ export function registerTreeViewCommands(context: vscode.ExtensionContext, telep
         try {
             await telepresenceManager.connectSession(connection.namespace, connection.microservice, connection.localPort);
             treeProvider.refresh();
-            vscode.window.showInformationMessage(`Reconnected: ${connection.microservice} -> localhost:${connection.localPort}`);
+            vscode.window.showInformationMessage(i18n.localize('tree.session.reconnected', connection.microservice, connection.localPort));
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to reconnect: ${error}`);
+            vscode.window.showErrorMessage(i18n.localize('tree.session.reconnectError', error instanceof Error ? error.message : String(error)));
         }
     });
 
@@ -292,16 +298,18 @@ export function registerTreeViewCommands(context: vscode.ExtensionContext, telep
     const showSessionDetailsCommand = vscode.commands.registerCommand('telepresence.showSessionDetails', async (sessionId: string) => {
         const session = telepresenceManager.getSession(sessionId);
         if (session) {
-            const details = `
-Session Details:
-• Deployment: ${session.deployment}
-• Namespace: ${session.namespace}
-• Local Port: ${session.localPort}
-• Status: ${session.status}
-• Started: ${new Date(session.startTime).toLocaleString()}
-• Duration: ${Math.floor((Date.now() - new Date(session.startTime).getTime()) / 1000 / 60)} minutes
-${session.error ? `• Error: ${session.error}` : ''}
-            `;
+            const duration = Math.floor((Date.now() - new Date(session.startTime).getTime()) / 1000 / 60);
+            const errorLine = session.error ? i18n.localize('tree.session.detail.error', session.error) : '';
+            const details = i18n.localize(
+                'tree.session.details',
+                session.deployment,
+                session.namespace,
+                session.localPort,
+                session.status,
+                new Date(session.startTime).toLocaleString(),
+                duration,
+                errorLine
+            );
             
             vscode.window.showInformationMessage(details, { modal: true });
         }
@@ -313,7 +321,7 @@ ${session.error ? `• Error: ${session.error}` : ''}
         if (session) {
             const info = `localhost:${session.localPort} -> ${session.deployment}.${session.namespace}`;
             await vscode.env.clipboard.writeText(info);
-            vscode.window.showInformationMessage('Session info copied to clipboard');
+            vscode.window.showInformationMessage(i18n.localize('tree.session.copied', 'Session info copied to clipboard'));
         }
     });
 

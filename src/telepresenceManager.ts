@@ -4,8 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { InjectedTelepresenceSettingsManager, ConnectionConfig } from './settingsManager';
-import { KubernetesManager, AuthInfo } from './kubernetesManager';
+import { KubernetesManager, AuthInfo, TelepresenceWorkload, formatReplicas } from './kubernetesManager';
 import { TelepresenceOutput } from './output';
+import { i18n } from './i18n/localizationManager';
+import { runShell } from './shell';
 
 const execAsync = promisify(exec);
 
@@ -73,6 +75,32 @@ export interface StatusRefreshMetadata {
 interface StatusRefreshOptions {
     trigger?: string;
     allowQueue?: boolean;
+}
+
+// Versión mínima: "detach" (sustituto de "leave") llegó en 2.30.0 y "--format json" en 2.29.0
+export const MIN_TELEPRESENCE_VERSION = '2.30.0';
+export const TELEPRESENCE_INSTALL_URL = 'https://telepresence.io/docs/install/client';
+
+function compareVersions(a: string, b: string): number {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        const diff = (pa[i] || 0) - (pb[i] || 0);
+        if (diff !== 0) {
+            return diff;
+        }
+    }
+    return 0;
+}
+
+// Subconjunto de "telepresence status --format json"
+interface TelepresenceStatusJson {
+    user_daemon?: {
+        running?: boolean;
+        status?: string;
+        namespace?: string;
+        kubernetes_context?: string;
+    };
 }
 
 export interface ForceQuitOptions {
@@ -443,6 +471,41 @@ export class TelepresenceManager {
         }
     }
 
+    /**
+     * Versión del cliente de telepresence (ej: "2.32.1"), o null si no está instalado
+     */
+    async getTelepresenceVersion(): Promise<string | null> {
+        try {
+            const { stdout } = await execAsync('telepresence version');
+            // Formato: "OSS Client : v2.32.1"
+            const match = stdout.match(/Client\s*:\s*v?(\d+\.\d+\.\d+)/i) ?? stdout.match(/v?(\d+\.\d+\.\d+)/);
+            return match ? match[1] : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Comprueba que la versión instalada soporta los comandos que usa la extensión
+     * (detach llegó en 2.30.0). Si no está instalado devuelve ok para que lo gestione
+     * la comprobación de instalación.
+     */
+    async checkTelepresenceVersion(): Promise<{ ok: boolean; version: string | null }> {
+        const version = await this.getTelepresenceVersion();
+        if (!version) {
+            return { ok: true, version: null };
+        }
+        return { ok: compareVersions(version, MIN_TELEPRESENCE_VERSION) >= 0, version };
+    }
+
+    private async ensureSupportedTelepresenceVersion(): Promise<void> {
+        const { ok, version } = await this.checkTelepresenceVersion();
+        TelepresenceOutput.appendLine(`📊 Telepresence version: ${version ?? 'unknown'} (minimum ${MIN_TELEPRESENCE_VERSION})`);
+        if (!ok) {
+            throw new Error(i18n.localize('telepresence.version.unsupported', version, MIN_TELEPRESENCE_VERSION));
+        }
+    }
+
     async findMatchingDeployment(namespace: string, microservice: string): Promise<string | null> {
         const deployments = await this.kubernetesManager.getDeploymentsInNamespace(namespace);
         const matching = deployments.find((dep: string) => dep.toLowerCase().includes(microservice.toLowerCase()));
@@ -485,7 +548,9 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`❌ FAILURE: Telepresence is not installed`);
             throw new Error('Telepresence is not installed');
         }
-        
+
+        await this.ensureSupportedTelepresenceVersion();
+
         TelepresenceOutput.appendLine(`🔍 Getting current kubectl context...`);
         const currentContext = await this.kubernetesManager.getCurrentContext();
         TelepresenceOutput.appendLine(`📊 Current context: "${currentContext}"`);
@@ -523,29 +588,29 @@ export class TelepresenceManager {
                 
                 switch (authInfo.authType) {
                     case 'kubelogin':
-                        errorMessage = 'You are not authenticated to the Azure cluster';
-                        suggestion = 'Ejecuta "Azure Login" desde la interfaz o usa el comando "telepresence.kubelogin"';
+                        errorMessage = i18n.localize('telepresence.auth.azureError');
+                        suggestion = i18n.localize('telepresence.auth.azureSuggestion');
                         break;
                         
                     case 'aws':
-                        errorMessage = 'You are not authenticated to the AWS cluster';
-                        suggestion = 'Configura AWS CLI con "aws configure" o usa variables de entorno';
+                        errorMessage = i18n.localize('telepresence.auth.awsError');
+                        suggestion = i18n.localize('telepresence.auth.awsSuggestion');
                         break;
                         
                     case 'gcp':
-                        errorMessage = 'You are not authenticated to the GCP cluster';
-                        suggestion = 'Ejecuta "gcloud auth login" y "gcloud container clusters get-credentials"';
+                        errorMessage = i18n.localize('telepresence.auth.gcpError');
+                        suggestion = i18n.localize('telepresence.auth.gcpSuggestion');
                         break;
                         
                     default:
-                        errorMessage = 'You are not authenticated to the Kubernetes cluster';
-                        suggestion = 'Verify your kubectl configuration and credentials';
+                        errorMessage = i18n.localize('telepresence.auth.genericError');
+                        suggestion = i18n.localize('telepresence.auth.genericSuggestion');
                 }
                 
                 TelepresenceOutput.appendLine(`❌ FAILURE: ${errorMessage}`);
                 TelepresenceOutput.appendLine(`💡 SUGGESTION: ${suggestion}`);
                 
-                const fullError = `${errorMessage}.\n\n💡 ${suggestion}`;
+                const fullError = i18n.localize('telepresence.auth.combined', errorMessage, suggestion);
                 throw new Error(fullError);
             }
             
@@ -555,38 +620,54 @@ export class TelepresenceManager {
         }
 
 
+        // Mientras se conecta no se lanzan otros comandos de telepresence (refrescos de estado)
+        const wasStatusUpdatesSuspended = this.areStatusUpdatesSuspended();
+        if (!wasStatusUpdatesSuspended) {
+            this.suspendStatusUpdates(`connectToNamespace:${namespace}`);
+        }
+
         try {
-            // 2.9. Desconectar intercepciones activas
-            TelepresenceOutput.appendLine(`📋 STEP 2.9: Executing telepresence quit`);
-            const quitStartTime = Date.now();
-            try {
-                const quitCommand = 'telepresence quit';
-                const quitResult = await this.executeCommand(quitCommand);
-                const connectDuration = Date.now() - quitStartTime;
-                TelepresenceOutput.appendLine(`✅ telepresence connect completed in ${connectDuration}ms`);
-                TelepresenceOutput.appendLine(`📊 Connect command output:`);
-                TelepresenceOutput.appendLine(`${quitResult || '(empty output)'}`);
-            } catch (connectError) {
-                const connectDuration = Date.now() - quitStartTime;
-                TelepresenceOutput.appendLine(`❌ telepresence disconnect FAILED after ${connectDuration}ms`);
-                TelepresenceOutput.appendLine(`📊 Connect error details: ${connectError}`);
+            // 2.9. Cerrar la sesión previa solo si apunta a otro contexto/namespace.
+            // "quit" sin -s deja vivo el root daemon: con -s el connect siguiente tiene que esperar
+            // a que vuelva a arrancar y puede fallar con "unable to dial root daemon"
+            TelepresenceOutput.appendLine(`📋 STEP 2.9: Checking existing telepresence session`);
+            const existing = await this.getTelepresenceStatusJson().catch(() => null);
+            const existingDaemon = existing?.user_daemon;
+            const alreadyConnected = existingDaemon?.status === 'Connected' &&
+                existingDaemon.namespace === namespace &&
+                (!currentContext || existingDaemon.kubernetes_context === currentContext);
+
+            if (existingDaemon?.status === 'Connected' && !alreadyConnected) {
+                TelepresenceOutput.appendLine(`📊 Connected to ${existingDaemon.kubernetes_context}/${existingDaemon.namespace}, quitting session first`);
+                try {
+                    const quitResult = await this.executeCommand('telepresence quit');
+                    TelepresenceOutput.appendLine(`✅ telepresence quit completed: ${quitResult.trim() || '(empty output)'}`);
+                } catch (quitError) {
+                    TelepresenceOutput.appendLine(`⚠️ telepresence quit failed: ${quitError}`);
+                }
             }
-            
+
             // 4. Conectar como con todo limpio
             TelepresenceOutput.appendLine(`📋 STEP 4: Connecting to namespace`);
-            const connectCommand = `telepresence connect -n ${namespace}`;
+            // --context hace que telepresence use ese contexto sin tocar el kubeconfig (sin kubectl)
+            const contextArg = currentContext ? ` --context ${currentContext}` : '';
+            const connectCommand = `telepresence connect${contextArg} -n ${namespace}`;
             TelepresenceOutput.appendLine(`🔗 Command to execute: "${connectCommand}"`);
             TelepresenceOutput.appendLine(`⏱️ Starting telepresence connect at: ${new Date().toISOString()}`);
             
             const connectStartTime = Date.now();
             try {
-                const connectResult = await this.executeCommand(connectCommand);
-                const connectDuration = Date.now() - connectStartTime;
-                
-                TelepresenceOutput.appendLine(`✅ telepresence connect completed in ${connectDuration}ms`);
-                TelepresenceOutput.appendLine(`📊 Connect command output:`);
-                TelepresenceOutput.appendLine(`${connectResult || '(empty output)'}`);
-                
+                if (alreadyConnected) {
+                    TelepresenceOutput.appendLine(`ℹ️ Already connected to ${existingDaemon?.kubernetes_context}/${namespace}, skipping connect`);
+                } else {
+                    const connectResult = await this.executeCommand(connectCommand);
+                    const connectDuration = Date.now() - connectStartTime;
+
+                    TelepresenceOutput.appendLine(`✅ telepresence connect completed in ${connectDuration}ms`);
+                    TelepresenceOutput.appendLine(`📊 Connect command output:`);
+                    TelepresenceOutput.appendLine(`${connectResult || '(empty output)'}`);
+                }
+
             } catch (connectError) {
                 const connectDuration = Date.now() - connectStartTime;
                 TelepresenceOutput.appendLine(`❌ telepresence connect FAILED after ${connectDuration}ms`);
@@ -631,8 +712,12 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Failed namespace: "${namespace}"`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
-            
+
             throw error;
+        } finally {
+            if (!wasStatusUpdatesSuspended) {
+                this.resumeStatusUpdates();
+            }
         }
     }
 
@@ -689,24 +774,24 @@ export class TelepresenceManager {
                 TelepresenceOutput.appendLine(`ℹ️ No active interceptions to disconnect`);
             }
     
-            // 2. telepresence quit
-            TelepresenceOutput.appendLine(`📋 STEP 4: Executing telepresence quit`);
-            const quitCommand = 'telepresence quit';
+            // 2. telepresence quit -s
+            TelepresenceOutput.appendLine(`📋 STEP 4: Executing telepresence quit -s`);
+            const quitCommand = 'telepresence quit -s';
             TelepresenceOutput.appendLine(`🛑 Command to execute: "${quitCommand}"`);
-            TelepresenceOutput.appendLine(`⏱️ Starting telepresence quit at: ${new Date().toISOString()}`);
-            
+            TelepresenceOutput.appendLine(`⏱️ Starting telepresence quit -s at: ${new Date().toISOString()}`);
+
             const quitStartTime = Date.now();
             try {
                 const quitResult = await this.executeCommand(quitCommand);
                 const quitDuration = Date.now() - quitStartTime;
-                
-                TelepresenceOutput.appendLine(`✅ telepresence quit completed in ${quitDuration}ms`);
+
+                TelepresenceOutput.appendLine(`✅ telepresence quit -s completed in ${quitDuration}ms`);
                 TelepresenceOutput.appendLine(`📊 Quit command output:`);
                 TelepresenceOutput.appendLine(`${quitResult || '(empty output)'}`);
                 
             } catch (quitError) {
                 const quitDuration = Date.now() - quitStartTime;
-                TelepresenceOutput.appendLine(`⚠️ telepresence quit FAILED after ${quitDuration}ms`);
+                TelepresenceOutput.appendLine(`⚠️ telepresence quit -s FAILED after ${quitDuration}ms`);
                 TelepresenceOutput.appendLine(`📊 Quit error details: ${quitError}`);
                 TelepresenceOutput.appendLine(`ℹ️ Continuing with process kill (this is expected behavior)`);
             }
@@ -788,7 +873,7 @@ export class TelepresenceManager {
         if (!this.namespaceConnection || this.namespaceConnection.status !== 'connected') {
             TelepresenceOutput.appendLine(`❌ FAILURE: Not connected to namespace`);
             TelepresenceOutput.appendLine(`📊 namespaceConnection status: ${this.namespaceConnection?.status || 'null'}`);
-            throw new Error('Must be connected to a namespace first. Use "Connect to Namespace" button.');
+            throw new Error(i18n.localize('telepresence.intercept.connectFirst'));
         }
     
         const namespace = this.namespaceConnection.namespace;
@@ -862,94 +947,46 @@ export class TelepresenceManager {
         this.notifySessionsChanged();
     
         try {
-            // 5. Ejecutar replace SIEMPRE con --use
-            TelepresenceOutput.appendLine(`\n📋 STEP 5: Executing telepresence replace with daemon selection`);
-            const portMapping = `${localPort}:8080`;
+            // 5. Ejecutar intercept
+            TelepresenceOutput.appendLine(`\n📋 STEP 5: Executing telepresence intercept`);
+            const portMapping = `${localPort}`;
 
-            // Generar daemon name
-            const currentContext = await this.kubernetesManager.getCurrentContext();
-            const daemonName = `${currentContext}-${namespace}`;
-
-            TelepresenceOutput.appendLine(`📊 Current context: "${currentContext}"`);
             TelepresenceOutput.appendLine(`📊 Namespace: "${namespace}"`);
-            TelepresenceOutput.appendLine(`📊 Daemon name: "${daemonName}"`);
             TelepresenceOutput.appendLine(`📊 Port mapping: "${portMapping}"`);
 
-            const replaceArgs = [
-                'replace',
-                '--use', daemonName,
-                '--port', portMapping,
-                '--env-file', '.env',
-                deployment,
-                '--mount=false'
-            ];
+            // El .env va a la raíz del workspace; el cwd del proceso de VS Code puede no ser escribible
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const envFileArg = workspaceRoot ? ` --env-file "${path.join(workspaceRoot, '.env')}"` : '';
+            TelepresenceOutput.appendLine(`📊 Env file: ${workspaceRoot ? path.join(workspaceRoot, '.env') : '(no workspace open, skipped)'}`);
 
-            TelepresenceOutput.appendLine(`📊 Replace command: telepresence ${replaceArgs.join(' ')}`);
-            TelepresenceOutput.appendLine(`⏱️ Starting telepresence replace at: ${new Date().toISOString()}`);
+            // Sin comando tras "--", intercept crea la intercepción y termina: se espera su resultado
+            // para que cualquier error llegue a la UI en lugar de perderse en un proceso en segundo plano
+            const interceptCommand = `telepresence intercept ${deployment} -p ${portMapping} -n ${namespace}${envFileArg} --mount=false`;
 
-            const replaceStartTime = Date.now();
+            TelepresenceOutput.appendLine(`📊 Intercept command: ${interceptCommand}`);
+            TelepresenceOutput.appendLine(`⏱️ Starting telepresence intercept at: ${new Date().toISOString()}`);
 
-            // Spawn process
-            TelepresenceOutput.appendLine(`🚀 Spawning telepresence replace process...`);
-            const replaceProcess = spawn('telepresence', replaceArgs, {
-                shell: true,
-                stdio: ['pipe', 'pipe', 'pipe']
-            });
-            
-            TelepresenceOutput.appendLine(`📊 Process spawned with PID: ${replaceProcess.pid}`);
-            TelepresenceOutput.appendLine(`📊 Process spawnfile: ${replaceProcess.spawnfile}`);
-            TelepresenceOutput.appendLine(`📊 Process args: ${JSON.stringify(replaceProcess.spawnargs)}`);
-    
-            session.process = replaceProcess;
+            const interceptStartTime = Date.now();
+            let interceptOutput: string;
+            try {
+                interceptOutput = await this.executeCommand(interceptCommand);
+            } catch (interceptError) {
+                // La intercepción ya está activa en el cluster (por ejemplo, creada antes de recargar VS Code)
+                if (String(interceptError).includes('already exists')) {
+                    TelepresenceOutput.appendLine(`ℹ️ Intercept for "${deployment}" already exists, reusing it`);
+                    interceptOutput = '(intercept already active)';
+                } else {
+                    throw interceptError;
+                }
+            }
+            TelepresenceOutput.appendLine(`✅ telepresence intercept completed in ${Date.now() - interceptStartTime}ms`);
+            TelepresenceOutput.appendLine(`📊 Intercept command output:`);
+            TelepresenceOutput.appendLine(`${interceptOutput || '(empty output)'}`);
+
             session.status = 'connected';
             this.sessions.set(sessionId, session);
             this.notifySessionsChanged();
-            
-            const replaceSpawnDuration = Date.now() - replaceStartTime;
-            TelepresenceOutput.appendLine(`✅ Process spawn completed in ${replaceSpawnDuration}ms`);
-            TelepresenceOutput.appendLine(`📊 Updated session status: ${session.status}`);
-    
-            // 6. Configurar listeners
-            TelepresenceOutput.appendLine(`\n📋 STEP 6: Setting up process listeners`);
-            
-            replaceProcess.stdout?.on('data', (data: Buffer) => {
-                const output = data.toString().trim();
-                TelepresenceOutput.appendLine(`[${deployment}] STDOUT: ${output}`);
-            });
-    
-            replaceProcess.stderr?.on('data', (data: Buffer) => {
-                const output = data.toString().trim();
-                TelepresenceOutput.appendLine(`[${deployment}] STDERR: ${output}`);
-            });
-    
-            replaceProcess.on('close', (code: number | null) => {
-                TelepresenceOutput.appendLine(`[${deployment}] Process closed with code: ${code}`);
-                TelepresenceOutput.appendLine(`[${deployment}] Process close time: ${new Date().toISOString()}`);
-            });
-    
-            replaceProcess.on('error', (error: Error) => {
-                TelepresenceOutput.appendLine(`[${deployment}] Process error: ${error.message}`);
-                TelepresenceOutput.appendLine(`[${deployment}] Error type: ${error.constructor.name}`);
-                TelepresenceOutput.appendLine(`[${deployment}] Error time: ${new Date().toISOString()}`);
-                
-                session.status = 'error';
-                session.error = error.message;
-                this.sessions.set(sessionId, session);
-                TelepresenceOutput.appendLine(`📊 Session updated with error status: ${JSON.stringify(session)}`);
-            });
-    
-            replaceProcess.on('spawn', () => {
-                TelepresenceOutput.appendLine(`[${deployment}] Process successfully spawned`);
-                TelepresenceOutput.appendLine(`[${deployment}] Spawn time: ${new Date().toISOString()}`);
-            });
-    
-            replaceProcess.on('exit', (code: number | null, signal: string | null) => {
-                TelepresenceOutput.appendLine(`[${deployment}] Process exited with code: ${code}, signal: ${signal}`);
-                TelepresenceOutput.appendLine(`[${deployment}] Exit time: ${new Date().toISOString()}`);
-            });
-            
-            TelepresenceOutput.appendLine(`✅ All process listeners configured`);
-    
+
             const totalDuration = Date.now() - startTime;
             TelepresenceOutput.appendLine(`\n${'='.repeat(80)}`);
             TelepresenceOutput.appendLine(`✅ SUCCESS: interceptTraffic completed`);
@@ -957,7 +994,6 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📊 Session ID: "${sessionId}"`);
             TelepresenceOutput.appendLine(`📊 Deployment: "${deployment}"`);
             TelepresenceOutput.appendLine(`📊 Port mapping: ${portMapping}`);
-            TelepresenceOutput.appendLine(`📊 Process PID: ${replaceProcess.pid}`);
             TelepresenceOutput.appendLine(`⏱️ End Time: ${new Date().toISOString()}`);
             TelepresenceOutput.appendLine(`${'='.repeat(80)}\n`);
     
@@ -1064,8 +1100,8 @@ export class TelepresenceManager {
         }
     
         try {
-            // STEP 3: Terminating replace process
-            TelepresenceOutput.appendLine(`\n📋 STEP 3: Terminating replace process`);
+            // STEP 3: Terminating intercept process
+            TelepresenceOutput.appendLine(`\n📋 STEP 3: Terminating intercept process`);
             if (session.process) {
                 TelepresenceOutput.appendLine(`💀 Found active process with PID: ${session.process.pid}`);
                 TelepresenceOutput.appendLine(`📊 Process killed status: ${session.process.killed}`);
@@ -1104,72 +1140,67 @@ export class TelepresenceManager {
                 TelepresenceOutput.appendLine(`📊 Session was likely already terminated or never had a process`);
             }
     
-            // STEP 4: Executing telepresence leave with daemon selection
-            TelepresenceOutput.appendLine(`\n📋 STEP 4: Executing telepresence leave with daemon selection`);
+            // STEP 4: Executing telepresence detach
+            TelepresenceOutput.appendLine(`
+📋 STEP 4: Executing telepresence detach`);
             const deploymentName = session.deployment;
             const namespace = session.namespace;
     
-            TelepresenceOutput.appendLine(`📊 Deployment to leave: "${deploymentName}"`);
+            TelepresenceOutput.appendLine(`📊 Deployment to detach: "${deploymentName}"`);
             TelepresenceOutput.appendLine(`📊 Namespace: "${namespace}"`);
     
-            // Generar daemon name SIEMPRE
-            TelepresenceOutput.appendLine(`🔍 Getting current context for daemon name...`);
-            const currentContext = await this.kubernetesManager.getCurrentContext();
-            const daemonName = `${currentContext}-${namespace}`;
-    
-            TelepresenceOutput.appendLine(`📊 Current context: "${currentContext}"`);
-            TelepresenceOutput.appendLine(`📊 Daemon name: "${daemonName}"`);
-    
-            const leaveCommand = `telepresence leave --use ${daemonName} ${deploymentName}`;
-            TelepresenceOutput.appendLine(`🔓 Command to execute: "${leaveCommand}"`);
-            TelepresenceOutput.appendLine(`⏱️ Starting telepresence leave at: ${new Date().toISOString()}`);
+            const detachCommand = `telepresence detach ${deploymentName} -n ${namespace}`;
+            TelepresenceOutput.appendLine(`🔓 Command to execute: "${detachCommand}"`);
+            TelepresenceOutput.appendLine(`⏱️ Starting telepresence detach at: ${new Date().toISOString()}`);
     
             const leaveStartTime = Date.now();
             try {
-                const leaveOutput = await this.executeCommand(leaveCommand);
+                const leaveOutput = await this.executeCommand(detachCommand);
                 const leaveDuration = Date.now() - leaveStartTime;
                 
-                TelepresenceOutput.appendLine(`✅ telepresence leave completed in ${leaveDuration}ms`);
-                TelepresenceOutput.appendLine(`📊 Leave command output:`);
+                TelepresenceOutput.appendLine(`✅ telepresence detach completed in ${leaveDuration}ms`);
+                TelepresenceOutput.appendLine(`📊 Detach command output:`);
                 TelepresenceOutput.appendLine(`${leaveOutput || '(empty output)'}`);
                 
             } catch (leaveError) {
                 const leaveDuration = Date.now() - leaveStartTime;
-                TelepresenceOutput.appendLine(`❌ telepresence leave FAILED after ${leaveDuration}ms`);
-                TelepresenceOutput.appendLine(`📊 Leave error details: ${leaveError}`);
+                TelepresenceOutput.appendLine(`❌ telepresence detach FAILED after ${leaveDuration}ms`);
+                TelepresenceOutput.appendLine(`📊 Detach error details: ${leaveError}`);
                 TelepresenceOutput.appendLine(`📊 Error type: ${leaveError instanceof Error ? leaveError.constructor.name : typeof leaveError}`);
                 
-                // Si falla el leave específico, intentar leave genérico SIN --use
-                TelepresenceOutput.appendLine(`\n🔄 FALLBACK: Attempting generic telepresence leave without --use...`);
+                // Si falla el detach específico, intentar sin -n
+                TelepresenceOutput.appendLine(`
+🔄 FALLBACK: Attempting telepresence detach without -n...`);
                 const genericLeaveStartTime = Date.now();
                 try {
-                    const genericLeaveCommand = `telepresence leave ${deploymentName}`;
+                    const genericLeaveCommand = `telepresence detach ${deploymentName}`;
                     TelepresenceOutput.appendLine(`🔓 Fallback command: "${genericLeaveCommand}"`);
                     
                     const genericLeaveOutput = await this.executeCommand(genericLeaveCommand);
                     const genericLeaveDuration = Date.now() - genericLeaveStartTime;
                     
-                    TelepresenceOutput.appendLine(`✅ Generic leave successful in ${genericLeaveDuration}ms`);
-                    TelepresenceOutput.appendLine(`📊 Generic leave output: ${genericLeaveOutput}`);
+                    TelepresenceOutput.appendLine(`✅ Generic detach successful in ${genericLeaveDuration}ms`);
+                    TelepresenceOutput.appendLine(`📊 Generic detach output: ${genericLeaveOutput}`);
                 } catch (genericError) {
                     const genericLeaveDuration = Date.now() - genericLeaveStartTime;
-                    TelepresenceOutput.appendLine(`❌ Generic leave also failed after ${genericLeaveDuration}ms`);
-                    TelepresenceOutput.appendLine(`📊 Generic leave error: ${genericError}`);
+                    TelepresenceOutput.appendLine(`❌ Generic detach also failed after ${genericLeaveDuration}ms`);
+                    TelepresenceOutput.appendLine(`📊 Generic detach error: ${genericError}`);
                     
-                    // Último intento: telepresence leave sin parámetros
-                    TelepresenceOutput.appendLine(`\n🔄 LAST RESORT: Attempting bare telepresence leave...`);
+                    // Último intento: telepresence detach sin parámetros
+                    TelepresenceOutput.appendLine(`
+🔄 LAST RESORT: Attempting bare telepresence detach...`);
                     const bareLeaveStartTime = Date.now();
                     try {
-                        const bareLeaveOutput = await this.executeCommand('telepresence leave');
+                        const bareLeaveOutput = await this.executeCommand('telepresence detach');
                         const bareLeaveDuration = Date.now() - bareLeaveStartTime;
                         
-                        TelepresenceOutput.appendLine(`✅ Bare leave successful in ${bareLeaveDuration}ms`);
-                        TelepresenceOutput.appendLine(`📊 Bare leave output: ${bareLeaveOutput}`);
+                        TelepresenceOutput.appendLine(`✅ Bare detach successful in ${bareLeaveDuration}ms`);
+                        TelepresenceOutput.appendLine(`📊 Bare detach output: ${bareLeaveOutput}`);
                     } catch (bareError) {
                         const bareLeaveDuration = Date.now() - bareLeaveStartTime;
-                        TelepresenceOutput.appendLine(`❌ Bare leave failed after ${bareLeaveDuration}ms`);
-                        TelepresenceOutput.appendLine(`📊 Bare leave error: ${bareError}`);
-                        TelepresenceOutput.appendLine(`⚠️ All leave attempts failed, but continuing with session cleanup`);
+                        TelepresenceOutput.appendLine(`❌ Bare detach failed after ${bareLeaveDuration}ms`);
+                        TelepresenceOutput.appendLine(`📊 Bare detach error: ${bareError}`);
+                        TelepresenceOutput.appendLine(`⚠️ All detach attempts failed, but continuing with session cleanup`);
                     }
                 }
             }
@@ -1268,7 +1299,7 @@ export class TelepresenceManager {
             for (const interception of interceptions) {
                 if (interception.status === 'intercepted') {
                     try {
-                        await this.executeCommand(`telepresence leave ${interception.fullDeploymentName || interception.deployment}`);
+                        await this.executeCommand(`telepresence detach ${interception.fullDeploymentName || interception.deployment}`);
                         TelepresenceOutput.appendLine(`✅ Left: ${interception.deployment}`);
                     } catch (leaveError) {
                         TelepresenceOutput.appendLine(`⚠️ Failed to leave ${interception.deployment}: ${leaveError}`);
@@ -1347,23 +1378,14 @@ export class TelepresenceManager {
         TelepresenceOutput.appendLine(`\n📋 Getting telepresence interceptions...`);
         
         try {
-            const currentContext = await this.kubernetesManager.getCurrentContext();
             const namespace = this.namespaceConnection?.namespace || 'default';
-            const daemonName = `${currentContext}-${namespace}`;
-            
-            TelepresenceOutput.appendLine(`📊 Current context: "${currentContext}"`);
             TelepresenceOutput.appendLine(`📊 Using namespace: "${namespace}"`);
-            TelepresenceOutput.appendLine(`📊 Daemon name: "${daemonName}"`);
-            
-            const command = `telepresence list --use ${daemonName}`;
-            TelepresenceOutput.appendLine(`🔄 Executing: ${command}`);
-            
-            const listOutput = await this.executeCommand(command);
-            TelepresenceOutput.appendLine(`📊 List output received, parsing...`);
-            
-            const interceptions = await this.parseTelepresenceList(listOutput, namespace);
+            TelepresenceOutput.appendLine(`🔄 Executing: telepresence list -n ${namespace} --format json`);
+
+            const workloads = await this.kubernetesManager.getWorkloads(namespace);
+            const interceptions = this.parseWorkloads(workloads, namespace);
             TelepresenceOutput.appendLine(`✅ Parsed ${interceptions.length} interceptions`);
-            
+
             return interceptions;
         } catch (error) {
             TelepresenceOutput.appendLine(`❌ Failed to get telepresence interceptions: ${error}`);
@@ -1372,73 +1394,42 @@ export class TelepresenceManager {
     }
 
     /**
-     * Parse the telepresence list output into structured data
+     * Convierte la salida de "telepresence list --format json" en intercepciones
      */
-    private async parseTelepresenceList(output: string, namespace: string): Promise<TelepresenceInterception[]> {
-        const interceptions: TelepresenceInterception[] = [];
-        const lines = output.split('\n');
-        
-        // Obtener información de réplicas de todos los deployments en el namespace
-        const deploymentsWithReplicas = await this.kubernetesManager.getDeploymentsWithReplicas(namespace);
-        const replicasMap = new Map<string, string>();
-        deploymentsWithReplicas.forEach(dep => {
-            replicasMap.set(dep.name, dep.replicas);
-        });
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            
-            if (line.startsWith('deployment ')) {
-                const match = line.match(/^deployment\s+([^\s:]+)\s*:\s*(.+)$/);
-                if (!match) continue;
-                
-                const [, deploymentName, statusPart] = match;
-                
-                const interception: TelepresenceInterception = {
-                    deployment: deploymentName,
-                    namespace: namespace,
-                    status: statusPart.includes('replaced') ? 'intercepted' : 'available',
-                    fullDeploymentName: deploymentName,
-                    replicas: replicasMap.get(deploymentName) || '-'
-                };
-                
-                // Si está interceptado, leer las siguientes líneas
-                if (statusPart.includes('replaced')) {
-                    let clusterIP = '';
-                    let localPort = 0;
-                    
-                    // Buscar en las siguientes líneas hasta encontrar otro deployment
-                    for (let j = i + 1; j < lines.length; j++) {
-                        const nextLine = lines[j].trim();
-                        
-                        // Parar si encontramos otro deployment
-                        if (nextLine.startsWith('deployment ')) break;
-                        
-                        // Línea con IPs: "10.244.13.200 -> 127.0.0.1"
-                        const ipMatch = nextLine.match(/(\d+\.\d+\.\d+\.\d+)\s*->\s*127\.0\.0\.1/);
-                        if (ipMatch) {
-                            clusterIP = ipMatch[1];
-                            continue;
-                        }
-                        
-                        // Línea con puertos: "8080 -> 5001 TCP"
-                        const portMatch = nextLine.match(/\d+\s*->\s*(\d+)\s+TCP/);
-                        if (portMatch) {
-                            localPort = parseInt(portMatch[1]);
-                            break;
-                        }
-                    }
-                    
-                    if (clusterIP) interception.clusterIP = clusterIP;
-                    if (localPort) interception.localPort = localPort;
-                    interception.targetPort = 8080;
-                }
-                
-                interceptions.push(interception);
+    private parseWorkloads(workloads: TelepresenceWorkload[], namespace: string): TelepresenceInterception[] {
+        return workloads.map(workload => {
+            // Un array "*_info" con elementos (intercept_info, y los equivalentes de replace/ingest/wiretap)
+            // indica que el workload está enganchado desde un cliente
+            const engagements = Object.entries(workload)
+                .filter(([key, value]) => /_infos?$/.test(key) && Array.isArray(value) && value.length > 0)
+                .flatMap(([, value]) => value as any[]);
+            const servicePort = workload.services?.[0]?.ports?.[0]?.port;
+
+            const interception: TelepresenceInterception = {
+                deployment: workload.name,
+                namespace: workload.namespace || namespace,
+                status: engagements.length > 0 ? 'intercepted' : 'available',
+                fullDeploymentName: workload.name,
+                replicas: formatReplicas(workload),
+                targetPort: servicePort
+            };
+
+            if (engagements.length > 0) {
+                const spec = engagements[0]?.spec ?? engagements[0] ?? {};
+                const localPort = Number(spec.target_port ?? spec.targetPort);
+                if (localPort) interception.localPort = localPort;
+                const podIP = engagements[0]?.pod_ip ?? engagements[0]?.podIp;
+                if (podIP) interception.clusterIP = podIP;
             }
-        }
-        
-        return interceptions;
+
+            return interception;
+        });
+    }
+
+    private formatWorkloadsForDisplay(interceptions: TelepresenceInterception[]): string {
+        return interceptions
+            .map(i => `${i.deployment}: ${i.status === 'intercepted' ? `intercepted${i.localPort ? ` -> localhost:${i.localPort}` : ''}` : 'ready to intercept'} (${i.replicas})`)
+            .join('\n');
     }
 
     /**
@@ -1469,24 +1460,17 @@ export class TelepresenceManager {
                         error: 'Authentication required. Please relogin to cluster.'
                     };
                 }
-            // Obtener intercepciones SIEMPRE con --use
             let interceptions: TelepresenceInterception[] = [];
             let rawOutput = '';
-            
-            TelepresenceOutput.appendLine(`🔍 Getting interceptions list with --use...`);
+
+            TelepresenceOutput.appendLine(`🔍 Getting interceptions list...`);
             try {
-                const currentContext = await this.kubernetesManager.getCurrentContext();
                 const namespace = this.namespaceConnection?.namespace || 'default';
-                const daemonName = `${currentContext}-${namespace}`;
-                
-                TelepresenceOutput.appendLine(`📊 Context: "${currentContext}", Namespace: "${namespace}", Daemon: "${daemonName}"`);
-                
-                const command = `telepresence list --use ${daemonName}`;
-                TelepresenceOutput.appendLine(`🔄 Executing: ${command}`);
-                
-                const listOutput = await this.executeCommand(command);
-                rawOutput = listOutput;
-                interceptions = await this.parseTelepresenceList(listOutput, namespace);
+                TelepresenceOutput.appendLine(`🔄 Executing: telepresence list -n ${namespace} --format json`);
+
+                const workloads = await this.kubernetesManager.getWorkloads(namespace);
+                interceptions = this.parseWorkloads(workloads, namespace);
+                rawOutput = this.formatWorkloadsForDisplay(interceptions);
                 TelepresenceOutput.appendLine(`✅ Interceptions retrieved: ${interceptions.length} found`);
             } catch (listError) {
                 const errorStr = listError instanceof Error ? listError.message : String(listError);
@@ -1598,10 +1582,10 @@ export class TelepresenceManager {
             
             // Verificación adicional con telepresence status como fallback
             try {
-                const statusOutput = await this.executeCommand('telepresence status');
-                
+                const status = await this.getTelepresenceStatusJson();
+
                 // Solo override si detectamos algo inesperado
-                if (statusOutput.includes('Connected') && !hasNamespaceConnection && !hasActiveInterceptions) {
+                if (status.user_daemon?.status === 'Connected' && !hasNamespaceConnection && !hasActiveInterceptions) {
                     TelepresenceOutput.appendLine(`⚠️ Daemon shows connected but no internal state - possible inconsistency`);
                     connectionStatus = 'connected';
                     daemonStatus = 'running';
@@ -1697,11 +1681,7 @@ export class TelepresenceManager {
     async executeCommand(command: string): Promise<string> {
         
         try {
-            const execOptions = process.platform === 'win32' 
-                ? { shell: 'powershell.exe' as const }
-                : { shell: '/bin/bash' as const };
-                
-            const { stdout, stderr } = await execAsync(command, execOptions);
+            const { stdout, stderr } = await runShell(command);
             
             if (stderr) {
                 TelepresenceOutput.appendLine(`⚠️ Warning: ${stderr}`);
@@ -1715,6 +1695,10 @@ export class TelepresenceManager {
         }
     }
  
+    private async getTelepresenceStatusJson(): Promise<TelepresenceStatusJson> {
+        return this.kubernetesManager.runTelepresenceJson<TelepresenceStatusJson>('status');
+    }
+
     async checkCurrentTelepresenceStatus(): Promise<void> {
         try {
             // Si acabamos de desconectar manualmente hace menos de 30 segundos, no verificar
@@ -1727,25 +1711,17 @@ export class TelepresenceManager {
             TelepresenceOutput.appendLine(`📋 Checking current telepresence status...`);
             
             // Check if telepresence is connected
-            const statusOutput = await this.executeCommand('telepresence status');
-            
-            if (statusOutput.includes('Status            : Connected')) {
-                // 🆕 NEW LOGIC: Extract namespace whenever we're connected
-                let connectedNamespace = null;
-                
-                // Extraer namespace del status output
-                const lines = statusOutput.split('\n');
-                for (const line of lines) {
-                    if (line.includes('Namespace         :')) {
-                        const namespaceMatch = line.match(/Namespace\s+:\s+([^\s]+)/);
-                        if (namespaceMatch) {
-                            connectedNamespace = namespaceMatch[1];
-                            TelepresenceOutput.appendLine(`📊 Extracted namespace from status: "${connectedNamespace}"`);
-                            break;
-                        }
-                    }
+            const status = await this.getTelepresenceStatusJson();
+
+            if (status.user_daemon?.status === 'Connected') {
+                const connectedNamespace = status.user_daemon.namespace ?? null;
+                TelepresenceOutput.appendLine(`📊 Namespace from status: "${connectedNamespace}"`);
+
+                // Mantener el contexto con el que está conectado el daemon
+                if (status.user_daemon.kubernetes_context) {
+                    this.kubernetesManager.setSelectedContext(status.user_daemon.kubernetes_context);
                 }
-                
+
                 if (connectedNamespace && connectedNamespace !== 'default' && connectedNamespace !== 'ambassador') {
                     this.updateNamespaceConnection({
                         namespace: connectedNamespace,
@@ -1803,7 +1779,7 @@ export class TelepresenceManager {
 
     private async killTelepresenceDaemons(): Promise<void> {
         try {
-            await this.executeCommand('telepresence quit');
+            await this.executeCommand('telepresence quit -s');
             await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (quitError) {
             try {

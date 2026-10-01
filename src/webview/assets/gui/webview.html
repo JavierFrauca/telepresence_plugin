@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-l10n="webview.app.title">Telepresence Control Panel</title>
+    <title data-l10n="webview.app.title"></title>
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; img-src https:;">
     <link rel="stylesheet" href="{{cssUri}}">
 </head>
@@ -14,36 +14,36 @@
                 <div class="app-info">
                     <img src="{{iconUri}}" alt="Telepresence Icon" class="app-icon">
                     <div class="app-details">
-                        <h1><span data-l10n="webview.app.heading">Telepresence GUI</span> <span class="version-text">v{{version}}</span></h1>
-                        <p data-l10n="webview.app.subtitle">Advanced microservices management in Kubernetes</p>
+                        <h1><span data-l10n="webview.app.heading"></span> <span class="version-text">v{{version}}</span></h1>
+                        <p data-l10n="webview.app.subtitle"></p>
                     </div>
                 </div>
             </div>
             <div class="system-status-bar">
                 <div class="status-grid">
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.telepresence">Telepresence</div>
-                        <div class="value" id="telepresence-status" data-l10n="webview.system.checking">Checking...</div>
+                        <div class="label" data-l10n="webview.system.telepresence"></div>
+                        <div class="value" id="telepresence-status" data-l10n="webview.system.checking"></div>
                     </div>
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.kubectl">kubectl</div>
-                        <div class="value" id="kubectl-status" data-l10n="webview.system.checking">Checking...</div>
+                        <div class="label" data-l10n="webview.system.kubectl"></div>
+                        <div class="value" id="kubectl-status" data-l10n="webview.system.checking"></div>
                     </div>
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.kubelogin">kubelogin</div>
-                        <div class="value" id="kubelogin-status" data-l10n="webview.system.checking">Checking...</div>
+                        <div class="label" data-l10n="webview.system.kubelogin"></div>
+                        <div class="value" id="kubelogin-status" data-l10n="webview.system.checking"></div>
                     </div>
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.context">Context</div>
-                        <div class="value clickable" id="context-status" title="webview.context.click" data-l10n="webview.system.checking">Checking...</div>
+                        <div class="label" data-l10n="webview.system.context"></div>
+                        <div class="value clickable" id="context-status" title="webview.context.click" data-l10n="webview.system.checking"></div>
                     </div>
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.authentication">Authentication</div>
-                        <div class="value" id="auth-status" data-l10n="webview.system.checking">Checking...</div>
+                        <div class="label" data-l10n="webview.system.authentication"></div>
+                        <div class="value" id="auth-status" data-l10n="webview.system.checking"></div>
                     </div>
                     <div class="status-item">
-                        <div class="label" data-l10n="webview.system.namespace">Namespace</div>
-                        <div class="value" id="namespace-connection-status" data-l10n="connection.status.disconnected">Disconnected</div>
+                        <div class="label" data-l10n="webview.system.namespace"></div>
+                        <div class="value" id="namespace-connection-status" data-l10n="connection.status.disconnected"></div>
                     </div>
                 </div>
             </div>
@@ -51,79 +51,75 @@
         <div class="connection-panels">
             <!-- Panel 1: Namespace Connection -->
             <div class="panel connection-panel">
-                <h2 data-l10n="webview.panel.namespace.title">🔌 Step 1: Namespace Connection</h2>
+                <h2 data-l10n="webview.panel.namespace.title"></h2>
                 <div class="connection-status" id="namespace-status-panel">
                     <div class="status-indicator disconnected" id="namespace-indicator">
                         <span class="status-dot"></span>
-                        <span class="status-text" data-l10n="connection.status.disconnected">Disconnected</span>
+                        <span class="status-text" data-l10n="connection.status.disconnected"></span>
                     </div>
                 </div>
                 <form id="namespace-form">
                     <div class="form-group">
-                        <label for="namespace-select" data-l10n="webview.panel.namespace.label">Namespace:</label>
+                        <label for="namespace-select" data-l10n="webview.panel.namespace.label"></label>
                         <div class="autocomplete-container">
                             <input type="text" id="namespace-select" placeholder="" data-l10n-attr="placeholder:webview.panel.namespace.placeholder" required>
                             <div class="autocomplete-list" id="namespace-list" style="display: none;"></div>
                         </div>
                     </div>
                     <div class="button-group">
-                        <button type="button" class="btn btn-secondary" id="refresh-namespaces-btn" data-l10n="webview.panel.namespace.refresh">
-                            🔄 Refresh
-                        </button>
+                        <button type="button" class="btn btn-secondary" id="refresh-namespaces-btn" data-l10n="webview.panel.namespace.refresh"></button>
                         <button type="submit" class="btn btn-primary" id="connect-namespace-btn">
-                            <span id="connect-namespace-text" data-l10n="webview.panel.namespace.connect">🔌 Connect</span>
+                            <span id="connect-namespace-text" data-l10n="webview.panel.namespace.connect"></span>
                             <span id="connect-namespace-loading" class="loading" style="display: none;"></span>
                         </button>
                         <button type="button" class="btn btn-danger" id="disconnect-namespace-btn" data-l10n="webview.panel.namespace.disconnect">
-                            🔌 Disconnect
+                            
                         </button>
                     </div>
                 </form>
             </div>
             <!-- Panel 2: Traffic Interception -->
             <div class="panel interception-panel">
-                <h2 data-l10n="webview.panel.intercept.title">🎯 Step 2: Traffic Interception</h2>
+                <h2 data-l10n="webview.panel.intercept.title"></h2>
                 <div class="interception-requirements" id="interception-requirements">
                     <div class="requirement-notice">
                         <span class="requirement-icon">⚠️</span>
-                        <span class="requirement-text" data-l10n="interception.requirement">Connect to a namespace first to intercept traffic</span>
+                        <span class="requirement-text" data-l10n="interception.requirement"></span>
                     </div>
                 </div>
                 <form id="interception-form">
                     <div class="form-group">
-                        <label for="microservice-input" data-l10n="webview.panel.intercept.serviceLabel">Microservice:</label>
+                        <label for="microservice-input" data-l10n="webview.panel.intercept.serviceLabel"></label>
                         <div class="autocomplete-container">
                             <input type="text" id="microservice-input" placeholder="" data-l10n-attr="placeholder:webview.panel.intercept.servicePlaceholder" disabled>
                             <div class="autocomplete-list" id="microservice-list" style="display: none;"></div>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="local-port-input" data-l10n="webview.panel.intercept.portLabel">Local Port:</label>
+                        <label for="local-port-input" data-l10n="webview.panel.intercept.portLabel"></label>
                         <input type="number" id="local-port-input" min="1" max="65535" value="5001" disabled>
                     </div>
                     <div class="button-group">
                         <button type="submit" class="btn btn-primary" id="intercept-traffic-btn" disabled>
-                            <span id="intercept-traffic-text" data-l10n="webview.panel.intercept.button">🎯 Intercept</span>
+                            <span id="intercept-traffic-text" data-l10n="webview.panel.intercept.button"></span>
                             <span id="intercept-traffic-loading" class="loading" style="display: none;"></span>
                         </button>
-                        <button type="button" class="btn btn-warning" id="disconnect-all-interceptions-btn" disabled data-l10n="webview.panel.intercept.disconnectAll">
-                            ⛔ Disconnect All
-                        </button>
+                        <button type="button" class="btn btn-warning" id="disconnect-all-interceptions-btn" disabled data-l10n="webview.panel.intercept.disconnectAll"></button>
                     </div>
                 </form>
             </div>
         </div>
         <div class="two-column">
             <div class="panel">
-                <h2 data-l10n="webview.panel.status.title">📊 Telepresence Status</h2>
+                <h2 data-l10n="webview.panel.status.title"></h2>
                 <div class="status-header">
                     <button class="btn btn-secondary" id="refresh-telepresence-status-btn">
-                        <span id="refresh-status-text" data-l10n="webview.panel.status.refresh">🔄 Refresh Status</span>
+                        <span id="refresh-status-text" data-l10n="webview.panel.status.refresh"></span>
                         <span id="refresh-status-loading" class="loading" style="display: none;"></span>
                     </button>
                     <div>
-                        <span class="daemon-status" id="daemon-status" data-l10n="webview.panel.status.unknown">Unknown</span>
-                        <span class="status-timestamp" id="status-timestamp" data-l10n="webview.panel.status.neverUpdated">Never updated</span>
+                        <span class="daemon-status" id="daemon-status" data-l10n="webview.panel.status.unknown"></span>
+                        <span class="status-timestamp" id="status-timestamp" data-l10n="webview.panel.status.neverUpdated"></span>
                     </div>
                 </div>
                 <div class="status-display" id="telepresence-status-container">
@@ -131,27 +127,23 @@
                         <div class="loading-state">
                             <div style="text-align: center; padding: 30px;">
                                 <div class="loading"></div>
-                                <p style="margin-top: 15px; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.status.loading">
-                                    Loading telepresence status...
-                                </p>
+                                <p style="margin-top: 15px; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.status.loading"></p>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="panel sessions-list">
-                <h2 data-l10n="webview.panel.activeInterceptions.title">🎯 Active Interceptions</h2>
+                <h2 data-l10n="webview.panel.activeInterceptions.title"></h2>
                 <div id="sessions-container">
-                    <p style="text-align: center; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.activeInterceptions.none">
-                        No active interceptions
-                    </p>
+                    <p style="text-align: center; color: var(--vscode-descriptionForeground);" data-l10n="webview.panel.activeInterceptions.none"></p>
                 </div>
             </div>
         </div>
         <div class="info-panel">
             <div class="info-footer">
-                <p><span data-l10n="webview.footer.developed">Developed by</span> <strong>Javier Frauca</strong> | v{{version}} | <span class="license" data-l10n="webview.footer.license">MIT License</span> | 
-                <a href="{{repoUrl}}" target="_blank" data-l10n="webview.footer.moreInfo">More information</a>
+                <p><span data-l10n="webview.footer.developed"></span> <strong>Javier Frauca</strong> | v{{version}} | <span class="license" data-l10n="webview.footer.license"></span> | 
+                <a href="{{repoUrl}}" target="_blank" data-l10n="webview.footer.moreInfo"></a>
                 </p>
             </div>
         </div>

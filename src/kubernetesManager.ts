@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { TelepresenceOutput } from './output';
+import { runShell } from './shell';
 
 const execAsync = promisify(exec);
 
@@ -11,6 +12,37 @@ export interface AuthInfo {
     provider: 'azure' | 'aws' | 'gcp' | 'unknown';
     error?: string;
 }
+
+interface TelepresenceContextInfo {
+    cluster?: string;
+    user?: string;
+    namespace?: string;
+    current?: boolean;
+}
+
+/**
+ * Elemento de "telepresence list --format json"
+ */
+export interface TelepresenceWorkload {
+    name: string;
+    namespace: string;
+    workload_resource_type?: string;
+    agent_version?: string;
+    desired_replicas?: number;
+    ready_replicas?: number;
+    services?: Array<{ name: string; ports?: Array<{ name?: string; port: number; target_port?: string }> }>;
+    not_interceptable_reason?: string;
+    intercept_info?: any[];
+}
+
+export function formatReplicas(workload: TelepresenceWorkload): string {
+    const ready = workload.ready_replicas ?? 0;
+    const desired = Math.max(workload.desired_replicas ?? 0, ready);
+    return `${ready}/${desired}`;
+}
+
+// Compartido entre instancias: varias vistas crean su propio KubernetesManager
+let selectedContext: string | null = null;
 
 export class KubernetesManager {
     constructor() {}
@@ -28,16 +60,22 @@ export class KubernetesManager {
         TelepresenceOutput.appendLine(`🔍 Getting cluster authentication info...`);
         
         try {
-            // 1. Analizar configuración de kubectl
-            const config = await this.executeCommand('kubectl config view --minify');
+            // 1. Analizar el contexto activo (telepresence list-contexts)
+            const contexts = await this.runTelepresenceJson<Record<string, TelepresenceContextInfo>>('list-contexts');
+            const contextName = selectedContext ?? Object.keys(contexts).find(name => contexts[name].current);
+            const config = JSON.stringify(contextName ? { name: contextName, ...contexts[contextName] } : {});
             const provider = this.detectProvider(config);
             const authType = this.detectAuthType(config);
-            
+
             TelepresenceOutput.appendLine(`📊 Detected: provider=${provider}, authType=${authType}`);
 
-            // 2. Probar acceso real
+            // 2. Probar acceso real. Si el daemon ya está conectado la sesión es válida; si no,
+            // list-namespaces (unos segundos, por eso no se lanza cuando hay conexión)
             try {
-                await this.executeCommand('kubectl auth whoami --request-timeout=10s');
+                const status = await this.runTelepresenceJson<{ user_daemon?: { status?: string } }>('status');
+                if (status.user_daemon?.status !== 'Connected') {
+                    await this.executeCommand(`telepresence list-namespaces${this.contextArg()}`);
+                }
                 TelepresenceOutput.appendLine(`✅ Authentication successful`);
                 return { needsAuth: false, authType, provider };
                 
@@ -276,29 +314,72 @@ try {
         }
     }
 
-    async getCurrentContext(): Promise<string | null> {
-        try {
-            const { stdout } = await execAsync('kubectl config current-context');
-            return stdout.trim();
-        } catch {
-            return null;
-        }
+    /**
+     * Ejecuta un comando de telepresence con --format json y devuelve el resultado parseado
+     */
+    async runTelepresenceJson<T>(args: string): Promise<T> {
+        const { stdout } = await execAsync(`telepresence ${args} --format json`);
+        return JSON.parse(stdout) as T;
     }
 
-    async getNamespaces(): Promise<string[]> {
+    /**
+     * Contexto elegido por el usuario. Se pasa a telepresence con --context,
+     * así que no hace falta "kubectl config use-context".
+     */
+    setSelectedContext(context: string | null): void {
+        selectedContext = context;
+    }
+
+    private contextArg(): string {
+        return selectedContext ? ` --context ${selectedContext}` : '';
+    }
+
+    /**
+     * Lista los contextos del kubeconfig mediante "telepresence list-contexts"
+     */
+    async getContexts(): Promise<Array<{ name: string; current: boolean }>> {
         try {
-            const { stdout } = await execAsync('kubectl get namespaces -o jsonpath="{.items[*].metadata.name}"');
-            return stdout.trim().split(' ').filter((ns: string) => ns.length > 0);
-        } catch {
+            const contexts = await this.runTelepresenceJson<Record<string, TelepresenceContextInfo>>('list-contexts');
+            return Object.entries(contexts).map(([name, info]) => ({ name, current: !!info.current }));
+        } catch (error) {
+            TelepresenceOutput.appendLine(`❌ telepresence list-contexts failed: ${error}`);
             return [];
         }
     }
 
+    async getCurrentContext(): Promise<string | null> {
+        if (selectedContext) {
+            return selectedContext;
+        }
+        const contexts = await this.getContexts();
+        return contexts.find(ctx => ctx.current)?.name ?? null;
+    }
+
+    async getNamespaces(): Promise<string[]> {
+        try {
+            return await this.runTelepresenceJson<string[]>(`list-namespaces${this.contextArg()}`);
+        } catch (error) {
+            TelepresenceOutput.appendLine(`❌ telepresence list-namespaces failed: ${error}`);
+            return [];
+        }
+    }
+
+    /**
+     * Workloads interceptables del namespace mediante "telepresence list -n <ns>".
+     * Requiere estar conectado con "telepresence connect".
+     */
+    async getWorkloads(namespace: string): Promise<TelepresenceWorkload[]> {
+        const workloads = await this.runTelepresenceJson<TelepresenceWorkload[] | null>(`list -n ${namespace}`);
+        return workloads ?? [];
+    }
+
     async getDeploymentsInNamespace(namespace: string): Promise<string[]> {
         try {
-            const { stdout } = await execAsync(`kubectl get deployments -n ${namespace} -o jsonpath="{.items[*].metadata.name}"`);
-            return stdout.trim().split(' ').filter((dep: string) => dep.length > 0);
-        } catch {
+            const workloads = await this.getWorkloads(namespace);
+            TelepresenceOutput.appendLine(`✅ Got ${workloads.length} workloads from telepresence list -n ${namespace}`);
+            return workloads.map(workload => workload.name);
+        } catch (error) {
+            TelepresenceOutput.appendLine(`❌ telepresence list failed for namespace ${namespace}: ${error}`);
             return [];
         }
     }
@@ -308,20 +389,8 @@ try {
      */
     async getDeploymentsWithReplicas(namespace: string): Promise<Array<{name: string, replicas: string}>> {
         try {
-            const { stdout } = await execAsync(`kubectl get deployments -n ${namespace} --no-headers`);
-            const deployments: Array<{name: string, replicas: string}> = [];
-            
-            const lines = stdout.trim().split('\n').filter(line => line.trim());
-            for (const line of lines) {
-                const parts = line.trim().split(/\s+/);
-                if (parts.length >= 2) {
-                    const name = parts[0];
-                    const ready = parts[1]; // formato: "2/2"
-                    deployments.push({ name, replicas: ready });
-                }
-            }
-            
-            return deployments;
+            const workloads = await this.getWorkloads(namespace);
+            return workloads.map(workload => ({ name: workload.name, replicas: formatReplicas(workload) }));
         } catch (error) {
             TelepresenceOutput.appendLine(`❌ Error getting deployments with replicas: ${error}`);
             return [];
@@ -329,7 +398,7 @@ try {
     }
 
     /**
-     * List pods in a namespace
+     * List pods in a namespace (los pods no los expone telepresence; solo se usa para acciones administrativas)
      */
     async getPodsInNamespace(namespace: string): Promise<string[]> {
         try {
@@ -617,7 +686,8 @@ try {
     private detectProvider(config: string): 'azure' | 'aws' | 'gcp' | 'unknown' {
         const configLower = config.toLowerCase();
         
-        if (configLower.includes('azmk8s.io') || configLower.includes('azure') || configLower.includes('kubelogin')) {
+        // "clusterUser_" es el nombre de usuario que genera "az aks get-credentials"
+        if (configLower.includes('azmk8s.io') || configLower.includes('azure') || configLower.includes('kubelogin') || configLower.includes('clusteruser_')) {
             return 'azure';
         } else if (configLower.includes('eks.amazonaws.com') || configLower.includes('aws')) {
             return 'aws';
@@ -631,7 +701,7 @@ try {
     private detectAuthType(config: string): 'kubelogin' | 'aws' | 'gcp' | 'generic' {
         const configLower = config.toLowerCase();
         
-        if (configLower.includes('kubelogin') || configLower.includes('azurecli')) {
+        if (configLower.includes('kubelogin') || configLower.includes('azurecli') || configLower.includes('clusteruser_')) {
             return 'kubelogin';
         } else if (configLower.includes('aws-iam-authenticator') || configLower.includes('eks')) {
             return 'aws';
@@ -660,11 +730,7 @@ try {
     public async runCommand(command: string): Promise<{success: boolean, stdout?: string, stderr?: string}> {
         
         try {
-            const execOptions = process.platform === 'win32' 
-                ? { shell: 'powershell.exe' as const }
-                : { shell: '/bin/bash' as const };
-                
-            const { stdout, stderr } = await execAsync(command, execOptions);
+            const { stdout, stderr } = await runShell(command);
             
             if (stderr) {
                 TelepresenceOutput.appendLine(`ℹ️ Running command: ${command}`);
@@ -692,11 +758,7 @@ try {
     public async executeCommand(command: string): Promise<string> {
         
         try {
-            const execOptions = process.platform === 'win32' 
-                ? { shell: 'powershell.exe' as const }
-                : { shell: '/bin/bash' as const };
-                
-            const { stdout, stderr } = await execAsync(command, execOptions);
+            const { stdout, stderr } = await runShell(command);
             
             if (stderr) {
                 TelepresenceOutput.appendLine(`ℹ️ Execute command: ${command}`);

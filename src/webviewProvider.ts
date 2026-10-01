@@ -120,7 +120,7 @@ export class TelepresenceWebviewProvider {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             TelepresenceOutput.appendLine(`[Telepresence] Error setting up webview: ${errorMessage}`);
-            vscode.window.showErrorMessage(`Error setting up Telepresence GUI: ${errorMessage}`);
+            vscode.window.showErrorMessage(i18n.localize('webviewProvider.setup.error', errorMessage));
         }
     }
 }
